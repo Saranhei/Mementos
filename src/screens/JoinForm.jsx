@@ -1,19 +1,18 @@
 import { useState } from 'react'
 import { api, friendlyError } from '../lib/api.js'
+import { formatWhen } from '../lib/time.js'
 
-const REMEMBERED = 'mementos:me'
-
-const remembered = () => {
+const LAST_NAME = 'mementos:name'
+const readLastName = () => {
   try {
-    return JSON.parse(localStorage.getItem(REMEMBERED) || '{}')
+    return localStorage.getItem(LAST_NAME) || ''
   } catch {
-    return {}
+    return ''
   }
 }
 
-export const JoinForm = ({ event, onJoined }) => {
-  const [name, setName] = useState(remembered().name || '')
-  const [email, setEmail] = useState(remembered().email || '')
+export const JoinForm = ({ event, email, onJoined }) => {
+  const [name, setName] = useState(readLastName)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -22,11 +21,11 @@ export const JoinForm = ({ event, onJoined }) => {
     setBusy(true)
     setError('')
     try {
-      await api.joinEvent({ code: event.code, name, email })
+      await api.joinEvent({ code: event.code, name })
       try {
-        localStorage.setItem(REMEMBERED, JSON.stringify({ name, email }))
+        localStorage.setItem(LAST_NAME, name)
       } catch {
-        // no pasa nada si no se puede recordar
+        // no es importante
       }
       await onJoined()
     } catch (err) {
@@ -35,29 +34,19 @@ export const JoinForm = ({ event, onJoined }) => {
     }
   }
 
-  const remaining = event.total_shots - event.shots_used
-
   return (
-    <main className="screen">
-      <p className="eyebrow">Te invitaron a</p>
-      <h1 className="display">{event.name}</h1>
-      <p className="lede">
-        Quedan <strong>{remaining}</strong> disparos para todos. Cada foto se saca una sola vez y no se puede borrar.
-        Al final te llega el álbum completo por mail.
+    <form className="card stack" onSubmit={submit}>
+      <p className="card-title">¿Cómo te llamamos?</p>
+      <label className="field">
+        <span>Tu nombre o apodo</span>
+        <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} placeholder="Así firma tus fotos" required autoFocus />
+      </label>
+      <p className="muted tiny">
+        El anfitrión va a ver qué fotos sacaste. El álbum te llega a {email}.
+        {event.starts_at && event.phase === 'scheduled' ? ` Se dispara desde el ${formatWhen(event.starts_at)}.` : ''}
       </p>
-
-      <form className="card stack" onSubmit={submit}>
-        <label className="field">
-          <span>Tu nombre</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} required />
-        </label>
-        <label className="field">
-          <span>Tu mail (para mandarte el álbum)</span>
-          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required />
-        </label>
-        {error && <p className="error">{error}</p>}
-        <button className="btn primary" disabled={busy}>{busy ? 'Entrando…' : 'Sumarme'}</button>
-      </form>
-    </main>
+      {error && <p className="error">{error}</p>}
+      <button className="btn primary" disabled={busy}>{busy ? 'Entrando…' : 'Sumarme a la fiesta'}</button>
+    </form>
   )
 }

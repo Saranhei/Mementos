@@ -1,44 +1,66 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { effectivePhase, formatRemaining, useNow } from '../lib/time.js'
 import { flushPending } from '../lib/shots.js'
+import { isAlbumLocked } from '../lib/useEventRoom.js'
 import { Camera } from '../components/Camera.jsx'
 import { Album } from '../components/Album.jsx'
 import { Ranking } from '../components/Ranking.jsx'
 import { HostPanel } from '../components/HostPanel.jsx'
-import { CameraIcon, GridIcon, KeyIcon, TrophyIcon } from '../components/Icons.jsx'
+import { AlbumEditor } from '../components/AlbumEditor.jsx'
+import { Darkroom } from '../components/Darkroom.jsx'
+import { CameraIcon, GridIcon, KeyIcon, TrophyIcon, PencilIcon } from '../components/Icons.jsx'
 
-const PhaseBanner = ({ event, phase, now }) => {
+const Banner = ({ event, phase, now }) => {
+  if (phase === 'scheduled') {
+    return (
+      <div className="banner scheduled">
+        <strong>En espera.</strong> {event.is_host ? 'Tocá Comenzar en el Panel para activar la cámara.' : 'La cámara se activa cuando el anfitrión toque Comenzar.'}
+      </div>
+    )
+  }
   if (phase === 'voting') {
     return (
       <div className="banner voting">
-        <strong>Se terminó el rollo.</strong> Última votación: <span className="mono">{formatRemaining(event.voting_ends_at, now)}</span>
+        <strong>¡Se terminó la fiesta!</strong> Última votación: <span className="mono">{formatRemaining(event.voting_ends_at, now)}</span>
       </div>
     )
   }
-  if (phase === 'closed') {
+  if (phase === 'closed' && event.delivered_at) {
     return (
-      <div className="banner closed">
-        {event.drive_folder_url ? (
-          <>
-            <strong>Álbum entregado.</strong>{' '}
-            <a href={event.drive_folder_url} target="_blank" rel="noreferrer">Abrir en Drive</a>
-          </>
-        ) : (
-          <>
-            <strong>Álbum cerrado.</strong> Te llega a {event.guest.email}.
-          </>
-        )}
+      <div className="banner delivered">
+        <strong>Álbum revelado.</strong>{' '}
+        {event.drive_folder_url && <a href={event.drive_folder_url} target="_blank" rel="noreferrer">Abrir en Drive</a>}
       </div>
     )
+  }
+  if (phase === 'closed' && event.is_host) {
+    return <div className="banner voting"><strong>Fiesta cerrada.</strong> Editá el álbum y envialo.</div>
   }
   return null
+}
+
+const tabsFor = (event, phase) => {
+  const delivered = Boolean(event.delivered_at)
+  const list = []
+  if (phase === 'open' || phase === 'scheduled') list.push({ id: 'camera', label: 'Cámara', icon: <CameraIcon /> })
+  if (event.is_host && phase === 'closed' && !delivered) {
+    list.push({ id: 'edit', label: 'Edición', icon: <PencilIcon /> })
+  } else {
+    list.push({ id: 'album', label: 'Álbum', icon: <GridIcon /> })
+    list.push({ id: 'ranking', label: 'Ranking', icon: <TrophyIcon /> })
+  }
+  if (event.is_host) list.push({ id: 'host', label: 'Panel', icon: <KeyIcon /> })
+  return list
 }
 
 export const Room = ({ room }) => {
   const { event, photos, scheduleRefresh, patchPhoto } = room
   const now = useNow(1000)
   const phase = effectivePhase(event, now)
-  const [tab, setTab] = useState(phase === 'open' ? 'camera' : 'album')
+  const tabs = tabsFor(event, phase)
+  const [tab, setTab] = useState(tabs[0].id)
+  const activeTab = tabs.some((item) => item.id === tab) ? tab : tabs[0].id
 
   useEffect(() => {
     flushPending().then(scheduleRefresh)
@@ -47,53 +69,54 @@ export const Room = ({ room }) => {
     return () => window.removeEventListener('online', onOnline)
   }, [scheduleRefresh])
 
+  // Cuando cambia la fase por horario, pedimos el estado real al servidor (p. ej. para bloquear el álbum).
+  const lastPhase = useRef(phase)
   useEffect(() => {
-    if (phase !== 'open' && tab === 'camera') setTab('album')
-  }, [phase, tab])
+    if (lastPhase.current !== phase) scheduleRefresh()
+    lastPhase.current = phase
+  }, [phase, scheduleRefresh])
 
   const remaining = event.total_shots - event.shots_used
-
-  const tabs = [
-    phase === 'open' && { id: 'camera', label: 'Cámara', icon: <CameraIcon /> },
-    { id: 'album', label: `Álbum · ${photos.length}`, icon: <GridIcon /> },
-    { id: 'ranking', label: 'Ranking', icon: <TrophyIcon /> },
-    event.is_host && { id: 'host', label: 'Panel', icon: <KeyIcon /> },
-  ].filter(Boolean)
+  const locked = isAlbumLocked(event, phase)
 
   return (
     <div className="room">
       <header className="room-head">
-        <div className="room-title">
+        <Link to="/" className="room-title">
           <h1>{event.name}</h1>
-          <span className="code-chip mono">{event.code}</span>
-        </div>
+          <span className="code-chip mono">{event.code} · {event.guest.name}</span>
+        </Link>
         <div className="counter" aria-label={`Quedan ${remaining} disparos`}>
           <span className="counter-num mono">{String(remaining).padStart(2, '0')}</span>
-          <span className="counter-label">quedan</span>
         </div>
       </header>
 
-      <PhaseBanner event={event} phase={phase} now={now} />
+      <Banner event={event} phase={phase} now={now} />
 
       <main className="room-body">
-        {tab === 'camera' && <Camera event={event} phase={phase} onShot={scheduleRefresh} />}
-        {tab === 'album' && <Album photos={photos} phase={phase} event={event} patchPhoto={patchPhoto} />}
-        {tab === 'ranking' && <Ranking photos={photos} />}
-        {tab === 'host' && <HostPanel event={event} phase={phase} now={now} onChange={scheduleRefresh} />}
+        {locked ? (
+          <Darkroom event={event} />
+        ) : (
+          <>
+            {activeTab === 'camera' && <Camera event={event} phase={phase} now={now} onShot={scheduleRefresh} />}
+            {activeTab === 'album' && <Album photos={photos} phase={phase} event={event} patchPhoto={patchPhoto} />}
+            {activeTab === 'ranking' && <Ranking photos={photos} />}
+            {activeTab === 'edit' && <AlbumEditor event={event} photos={photos} patchPhoto={patchPhoto} onChange={scheduleRefresh} />}
+            {activeTab === 'host' && <HostPanel event={event} phase={phase} now={now} onChange={scheduleRefresh} />}
+          </>
+        )}
       </main>
 
-      <nav className="tabbar">
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            className={`tab ${tab === item.id ? 'active' : ''}`}
-            onClick={() => setTab(item.id)}
-          >
-            {item.icon}
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      {!locked && tabs.length > 1 && (
+        <nav className="tabbar">
+          {tabs.map((item) => (
+            <button key={item.id} className={`tab ${activeTab === item.id ? 'active' : ''}`} onClick={() => setTab(item.id)}>
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   )
 }

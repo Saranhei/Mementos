@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { captureFrame, fileToJpeg } from '../lib/image.js'
 import { submitShot } from '../lib/shots.js'
 import { friendlyError } from '../lib/api.js'
+import { dateStamp } from '../lib/time.js'
 import { FlipIcon } from './Icons.jsx'
 
-const useCameraStream = (videoRef, facing) => {
+const useCameraStream = (videoRef, facing, enabled) => {
   const [state, setState] = useState('starting') // starting | live | unavailable
 
   useEffect(() => {
+    if (!enabled) return undefined
     let cancelled = false
     let stream
 
@@ -36,7 +38,7 @@ const useCameraStream = (videoRef, facing) => {
       cancelled = true
       stream?.getTracks().forEach((track) => track.stop())
     }
-  }, [videoRef, facing])
+  }, [videoRef, facing, enabled])
 
   return state
 }
@@ -45,7 +47,7 @@ export const Camera = ({ event, phase, onShot }) => {
   const videoRef = useRef(null)
   const fileRef = useRef(null)
   const [facing, setFacing] = useState('environment')
-  const camera = useCameraStream(videoRef, facing)
+  const camera = useCameraStream(videoRef, facing, phase === 'open')
   const [busy, setBusy] = useState(false)
   const [flash, setFlash] = useState(false)
   const [last, setLast] = useState(null)
@@ -54,7 +56,9 @@ export const Camera = ({ event, phase, onShot }) => {
   const remaining = event.total_shots - event.shots_used
   const myLeft = event.max_per_guest ? event.max_per_guest - event.my_shots : null
   const blockedReason =
-    phase !== 'open' || remaining <= 0
+    phase === 'scheduled'
+      ? 'La cámara se activa cuando el anfitrión toca Comenzar.'
+      : phase !== 'open' || remaining <= 0
       ? 'Se terminó el rollo.'
       : myLeft !== null && myLeft <= 0
         ? 'Ya usaste todos tus disparos.'
@@ -100,13 +104,15 @@ export const Camera = ({ event, phase, onShot }) => {
   return (
     <section className="camera">
       <div className={`viewfinder ${facing === 'user' ? 'mirrored' : ''}`}>
-        <video ref={videoRef} playsInline muted autoPlay hidden={camera === 'unavailable'} />
-        {camera === 'starting' && <p className="viewfinder-msg muted pulse">Abriendo cámara…</p>}
+        <video ref={videoRef} playsInline muted autoPlay hidden={camera === 'unavailable' || phase === 'scheduled'} />
+        {camera === 'starting' && phase === 'open' && <p className="viewfinder-msg muted pulse">Abriendo cámara…</p>}
         {camera === 'unavailable' && (
           <p className="viewfinder-msg muted">
             No pudimos abrir la cámara acá. Tocá el disparador para usar la cámara del teléfono.
           </p>
         )}
+        <span className="datestamp mono" aria-hidden="true">{dateStamp()}</span>
+        {phase === 'scheduled' && <div className="lens-cap"><p>Tapa puesta</p></div>}
         {flash && <div className="flash" />}
         {last && (
           <figure className={`last-shot ${last.status}`}>

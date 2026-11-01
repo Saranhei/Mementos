@@ -2,6 +2,15 @@
 -- Mementos — esquema completo de Supabase
 -- Pegalo ENTERO en Supabase → SQL Editor → New query → Run.
 -- Se puede volver a correr sin romper nada (es idempotente).
+--
+-- Reglas que garantiza este archivo (no la app):
+--   · Todos entran con su mail verificado (código o link por mail).
+--   · Los disparos son compartidos, atómicos, sin repetir y sin borrar.
+--   · El evento se crea en espera: el QR ya sirve para anotarse, pero nadie
+--     dispara hasta que el host toca "Comenzar". Puede tener hora de fin.
+--   · Al cerrarse, las fotos quedan bloqueadas para los invitados hasta que
+--     el host las edita y envía el álbum.
+--   · Las fotos son privadas: solo se ven con links firmados que vencen.
 -- =====================================================================
 
 create extension if not exists pgcrypto;
@@ -16,17 +25,33 @@ create table if not exists public.events (
   name             text not null check (char_length(name) between 1 and 80),
   host_id          uuid not null,
   total_shots      int  not null check (total_shots between 1 and 2000),
+  max_guests       int  not null default 50 check (max_guests between 1 and 2000),
   max_per_guest    int  check (max_per_guest is null or max_per_guest >= 1),
   shots_used       int  not null default 0,
   voting_minutes   int  not null default 60 check (voting_minutes between 0 and 10080),
-  status           text not null default 'open' check (status in ('open', 'voting', 'closed')),
+  starts_at        timestamptz,
+  ends_at          timestamptz,
+  status           text not null default 'pending' check (status in ('pending', 'open', 'voting', 'closed')),
   voting_ends_at   timestamptz,
+  message          text check (message is null or char_length(message) <= 1000),
+  cover_photo_id   uuid,
   activity_at      timestamptz not null default now(),  -- se toca en cada cambio: dispara el realtime
   drive_folder_url text,
   delivered_at     timestamptz,
   created_at       timestamptz not null default now(),
-  constraint shots_within_total check (shots_used between 0 and total_shots)
+  constraint shots_within_total check (shots_used between 0 and total_shots),
+  constraint schedule_order check (ends_at is null or starts_at is null or ends_at > starts_at)
 );
+
+-- Por si corriste una versión anterior de este archivo
+alter table public.events add column if not exists max_guests int not null default 50;
+alter table public.events add column if not exists starts_at timestamptz;
+alter table public.events add column if not exists ends_at timestamptz;
+alter table public.events add column if not exists message text;
+alter table public.events add column if not exists cover_photo_id uuid;
+alter table public.events alter column status set default 'pending';
+alter table public.events drop constraint if exists events_status_check;
+alter table public.events add constraint events_status_check check (status in ('pending', 'open', 'voting', 'closed'));
 
 create table if not exists public.guests (
   id         uuid primary key default gen_random_uuid(),
@@ -37,6 +62,7 @@ create table if not exists public.guests (
   created_at timestamptz not null default now(),
   unique (event_id, user_id)
 );
+create index if not exists guests_user_idx on public.guests (user_id);
 
 create table if not exists public.photos (
   id           uuid primary key default gen_random_uuid(),
@@ -45,9 +71,11 @@ create table if not exists public.photos (
   shot_number  int  not null,
   storage_path text not null unique,
   uploaded     boolean not null default false,
+  hidden       boolean not null default false,  -- el host la deja fuera del álbum final (no se borra)
   created_at   timestamptz not null default now(),
   unique (event_id, shot_number)
 );
+alter table public.photos add column if not exists hidden boolean not null default false;
 create index if not exists photos_event_idx on public.photos (event_id);
 create index if not exists photos_guest_idx on public.photos (guest_id);
 
@@ -72,13 +100,33 @@ create index if not exists wants_guest_idx on public.wants (guest_id);
 -- Helpers
 -- ---------------------------------------------------------------------
 
--- Fase real del evento: la votación final se cierra sola al vencer el tiempo.
+-- Cuándo termina la votación final (explícita, o automática por hora de fin).
+create or replace function public.voting_deadline(e public.events) returns timestamptz
+language sql stable as $$
+  select case
+    when e.status = 'voting' then e.voting_ends_at
+    when e.status in ('pending', 'open') and e.ends_at is not null then e.ends_at + make_interval(mins => e.voting_minutes)
+    else e.voting_ends_at
+  end
+$$;
+
+-- Fase real del evento: scheduled (en espera) → open → voting → closed.
+-- Empieza solo cuando el host toca "Comenzar"; el fin puede ser manual o por horario.
 create or replace function public.phase(e public.events) returns text
 language sql stable as $$
   select case
-    when e.status = 'voting' and e.voting_ends_at is not null and now() >= e.voting_ends_at then 'closed'
-    else e.status
+    when e.status = 'closed' then 'closed'
+    when e.status = 'voting' then case when now() >= e.voting_ends_at then 'closed' else 'voting' end
+    when e.ends_at is not null and now() >= e.ends_at then
+      case when now() >= e.ends_at + make_interval(mins => e.voting_minutes) then 'closed' else 'voting' end
+    when e.status = 'pending' then 'scheduled'
+    else 'open'
   end
+$$;
+
+create or replace function public.session_email() returns text
+language sql stable as $$
+  select lower(nullif(auth.jwt() ->> 'email', ''))
 $$;
 
 create or replace function public.my_guest_id(p_event_id uuid) returns uuid
@@ -90,6 +138,24 @@ create or replace function public.can_see_event(p_event_id uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from guests where event_id = p_event_id and user_id = auth.uid())
       or exists (select 1 from events where id = p_event_id and host_id = auth.uid())
+$$;
+
+-- Quién puede ver una foto:
+--   · el host, siempre;
+--   · los invitados, durante la fiesta y la votación;
+--   · después del cierre, recién cuando el álbum se entregó, y sin las fotos ocultas.
+create or replace function public.can_view_object(p_name text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from photos p join events e on e.id = p.event_id
+    where p.storage_path = p_name and p.uploaded and (
+      e.host_id = auth.uid()
+      or (
+        exists (select 1 from guests g where g.event_id = e.id and g.user_id = auth.uid())
+        and (phase(e) <> 'closed' or (e.delivered_at is not null and not p.hidden))
+      )
+    )
+  )
 $$;
 
 -- Solo se puede subir un archivo al path que el servidor reservó para vos y que todavía no se subió.
@@ -117,6 +183,16 @@ begin
   return candidate;
 end $$;
 
+create or replace function public.assert_host(p_event_id uuid) returns public.events
+language plpgsql stable security definer set search_path = public as $$
+declare
+  e events;
+begin
+  select * into e from events where id = p_event_id and host_id = auth.uid();
+  if not found then raise exception 'NOT_ALLOWED'; end if;
+  return e;
+end $$;
+
 -- ---------------------------------------------------------------------
 -- Seguridad (RLS): todo se lee con permisos y se escribe SOLO vía funciones
 -- ---------------------------------------------------------------------
@@ -137,7 +213,7 @@ create policy guests_read_own on public.guests for select to authenticated
 
 drop policy if exists photos_read on public.photos;
 create policy photos_read on public.photos for select to authenticated
-  using (uploaded and public.can_see_event(event_id));
+  using (uploaded and public.can_view_object(storage_path));
 
 drop policy if exists votes_read_own on public.votes;
 create policy votes_read_own on public.votes for select to authenticated
@@ -147,27 +223,55 @@ drop policy if exists wants_read_own on public.wants;
 create policy wants_read_own on public.wants for select to authenticated
   using (guest_id in (select id from public.guests where user_id = auth.uid()));
 
--- Sin políticas de insert/update/delete: nadie puede borrar ni editar fotos, ni siquiera quien organiza.
+-- Sin políticas de insert/update/delete: nadie puede borrar ni editar fotos, ni siquiera el host.
 
 -- ---------------------------------------------------------------------
--- Funciones que usa la app
+-- Funciones públicas (sin sesión): solo lo justo para mostrar la invitación
 -- ---------------------------------------------------------------------
 
+create or replace function public.event_preview(p_code text) returns json
+language plpgsql stable security definer set search_path = public as $$
+declare
+  e events;
+begin
+  select * into e from events where code = upper(trim(p_code));
+  if not found then raise exception 'EVENT_NOT_FOUND'; end if;
+  return json_build_object(
+    'code', e.code,
+    'name', e.name,
+    'phase', phase(e),
+    'starts_at', e.starts_at,
+    'ends_at', e.ends_at,
+    'shots_left', e.total_shots - e.shots_used
+  );
+end $$;
+
+-- ---------------------------------------------------------------------
+-- Funciones con sesión
+-- ---------------------------------------------------------------------
+
+drop function if exists public.create_event(text, int, int, int, int, timestamptz, timestamptz, text);
+drop function if exists public.create_event(text, int, int, int, text, text);
+
+-- El evento nace "en espera". Más adelante lo va a crear la web después del pago.
 create or replace function public.create_event(
-  p_name text, p_total_shots int, p_voting_minutes int, p_max_per_guest int,
-  p_host_name text, p_host_email text
+  p_name text, p_total_shots int, p_max_guests int, p_max_per_guest int,
+  p_voting_minutes int, p_ends_at timestamptz, p_host_name text
 ) returns text
 language plpgsql security definer set search_path = public as $$
 declare
   v_event events;
 begin
-  if auth.uid() is null then raise exception 'NO_SESSION'; end if;
-  insert into events (code, name, host_id, total_shots, voting_minutes, max_per_guest)
-  values (new_event_code(), trim(p_name), auth.uid(), p_total_shots, coalesce(p_voting_minutes, 60), p_max_per_guest)
+  if auth.uid() is null or session_email() is null then raise exception 'NO_SESSION'; end if;
+  if p_ends_at is not null and p_ends_at <= now() then raise exception 'BAD_SCHEDULE'; end if;
+
+  insert into events (code, name, host_id, total_shots, max_guests, max_per_guest, voting_minutes, ends_at)
+  values (new_event_code(), trim(p_name), auth.uid(), p_total_shots, coalesce(p_max_guests, 50),
+          p_max_per_guest, coalesce(p_voting_minutes, 60), p_ends_at)
   returning * into v_event;
 
   insert into guests (event_id, user_id, name, email)
-  values (v_event.id, auth.uid(), trim(p_host_name), lower(trim(p_host_email)));
+  values (v_event.id, auth.uid(), trim(p_host_name), session_email());
 
   return v_event.code;
 end $$;
@@ -178,6 +282,7 @@ declare
   e events;
   g guests;
 begin
+  if auth.uid() is null then raise exception 'NO_SESSION'; end if;
   select * into e from events where code = upper(trim(p_code));
   if not found then raise exception 'EVENT_NOT_FOUND'; end if;
 
@@ -189,11 +294,16 @@ begin
     'name', e.name,
     'total_shots', e.total_shots,
     'shots_used', e.shots_used,
+    'max_guests', e.max_guests,
     'max_per_guest', e.max_per_guest,
     'voting_minutes', e.voting_minutes,
-    'voting_ends_at', e.voting_ends_at,
+    'starts_at', e.starts_at,
+    'ends_at', e.ends_at,
+    'voting_ends_at', voting_deadline(e),
     'phase', phase(e),
     'delivered_at', e.delivered_at,
+    'message', case when g.id is not null then e.message end,
+    'cover_photo_id', case when g.id is not null then e.cover_photo_id end,
     'drive_folder_url', case when g.id is not null then e.drive_folder_url end,
     'is_host', e.host_id = auth.uid(),
     'guest', case when g.id is null then null
@@ -203,20 +313,40 @@ begin
   );
 end $$;
 
-create or replace function public.join_event(p_code text, p_name text, p_email text) returns uuid
+create or replace function public.my_events() returns json
+language sql stable security definer set search_path = public as $$
+  select coalesce(json_agg(t order by t.created_at desc), '[]'::json) from (
+    select e.code, e.name, phase(e) as phase, e.starts_at, e.delivered_at, e.created_at,
+           e.host_id = auth.uid() as is_host
+    from events e
+    where e.host_id = auth.uid()
+       or exists (select 1 from guests g where g.event_id = e.id and g.user_id = auth.uid())
+    limit 50
+  ) t
+$$;
+
+-- El mail sale de la sesión verificada; el nombre lo elige cada invitado.
+create or replace function public.join_event(p_code text, p_name text) returns uuid
 language plpgsql security definer set search_path = public as $$
 declare
   e events;
   v_id uuid;
 begin
-  if auth.uid() is null then raise exception 'NO_SESSION'; end if;
-  select * into e from events where code = upper(trim(p_code));
+  if auth.uid() is null or session_email() is null then raise exception 'NO_SESSION'; end if;
+  select * into e from events where code = upper(trim(p_code)) for update;
   if not found then raise exception 'EVENT_NOT_FOUND'; end if;
+
+  select id into v_id from guests where event_id = e.id and user_id = auth.uid();
+  if v_id is not null then
+    update guests set name = trim(p_name) where id = v_id;
+    return v_id;
+  end if;
+
   if phase(e) = 'closed' then raise exception 'EVENT_CLOSED'; end if;
+  if (select count(*) from guests where event_id = e.id) >= e.max_guests then raise exception 'EVENT_FULL'; end if;
 
   insert into guests (event_id, user_id, name, email)
-  values (e.id, auth.uid(), trim(p_name), lower(trim(p_email)))
-  on conflict (event_id, user_id) do update set name = excluded.name, email = excluded.email
+  values (e.id, auth.uid(), trim(p_name), session_email())
   returning id into v_id;
 
   update events set activity_at = now() where id = e.id;
@@ -240,6 +370,7 @@ begin
   if v_guest is null then raise exception 'NOT_A_GUEST'; end if;
 
   select * into e from events where id = p_event_id for update;
+  if phase(e) = 'scheduled' then raise exception 'NOT_STARTED'; end if;
   if phase(e) = 'closed' then raise exception 'EVENT_CLOSED'; end if;
   if phase(e) <> 'open' or e.shots_used >= e.total_shots then raise exception 'NO_SHOTS_LEFT'; end if;
 
@@ -282,7 +413,7 @@ begin
   update public.events set activity_at = now() where id = v_event;
 end $$;
 
--- p_value: 1 = mejor, -1 = peor, 0 = sacar voto. Se vota durante todo el evento.
+-- p_value: 1 = mejor, -1 = peor, 0 = sacar voto. Se vota durante toda la fiesta.
 create or replace function public.vote(p_photo_id uuid, p_value int) returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -311,7 +442,7 @@ begin
   update events set activity_at = now() where id = e.id;
 end $$;
 
--- "Quiero esta": se puede marcar hasta que el álbum se entrega.
+-- "Quiero esta": se puede marcar mientras el invitado ve las fotos (fiesta y votación).
 create or replace function public.toggle_want(p_photo_id uuid) returns boolean
 language plpgsql security definer set search_path = public as $$
 declare
@@ -326,6 +457,7 @@ begin
   v_guest := my_guest_id(p.event_id);
   if v_guest is null then raise exception 'NOT_A_GUEST'; end if;
   if e.delivered_at is not null then raise exception 'ALREADY_DELIVERED'; end if;
+  if phase(e) = 'closed' and e.host_id <> auth.uid() then raise exception 'ALBUM_LOCKED'; end if;
 
   if exists (select 1 from wants where photo_id = p.id and guest_id = v_guest) then
     delete from wants where photo_id = p.id and guest_id = v_guest;
@@ -339,72 +471,150 @@ end $$;
 create or replace function public.album(p_event_id uuid)
 returns table (
   id uuid, shot_number int, storage_path text, created_at timestamptz, author text,
-  is_mine boolean, ups int, downs int, my_vote int, wanted boolean
+  is_mine boolean, hidden boolean, ups int, downs int, my_vote int, wanted boolean
 )
-language sql stable security definer set search_path = public as $$
-  with me as (select my_guest_id(p_event_id) as gid)
+language plpgsql stable security definer set search_path = public as $$
+#variable_conflict use_column
+declare
+  e events;
+  v_gid uuid;
+  v_host boolean;
+begin
+  select * into e from events where events.id = p_event_id;
+  if not found then raise exception 'EVENT_NOT_FOUND'; end if;
+  v_gid := my_guest_id(p_event_id);
+  v_host := e.host_id = auth.uid();
+  if v_gid is null and not v_host then raise exception 'NOT_A_GUEST'; end if;
+  if not v_host and phase(e) = 'closed' and e.delivered_at is null then raise exception 'ALBUM_LOCKED'; end if;
+
+  return query
   select
     p.id, p.shot_number, p.storage_path, p.created_at, g.name,
-    p.guest_id = me.gid,
+    p.guest_id = v_gid,
+    p.hidden,
     (select count(*) from votes v where v.photo_id = p.id and v.value = 1)::int,
     (select count(*) from votes v where v.photo_id = p.id and v.value = -1)::int,
-    coalesce((select v.value from votes v where v.photo_id = p.id and v.guest_id = me.gid), 0)::int,
-    exists (select 1 from wants w where w.photo_id = p.id and w.guest_id = me.gid)
+    coalesce((select v.value from votes v where v.photo_id = p.id and v.guest_id = v_gid), 0)::int,
+    exists (select 1 from wants w where w.photo_id = p.id and w.guest_id = v_gid)
   from photos p
   join guests g on g.id = p.guest_id
-  cross join me
-  where p.event_id = p_event_id and p.uploaded and me.gid is not null
-  order by p.shot_number desc
-$$;
+  where p.event_id = p_event_id and p.uploaded and (v_host or not p.hidden)
+  order by p.shot_number desc;
+end $$;
 
--- ---------- Acciones de quien organiza ----------
+-- ---------- Acciones del host ----------
 
+create or replace function public.host_guests(p_event_id uuid)
+returns table (name text, email text, photos int, joined_at timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  perform assert_host(p_event_id);
+  return query
+  select g.name, g.email,
+         (select count(*) from photos p where p.guest_id = g.id and p.uploaded)::int,
+         g.created_at
+  from guests g where g.event_id = p_event_id
+  order by g.created_at;
+end $$;
+
+-- "Comenzar": activa el QR para disparar.
+create or replace function public.start_now(p_event_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  e events := assert_host(p_event_id);
+begin
+  if phase(e) <> 'scheduled' then raise exception 'NOT_ALLOWED'; end if;
+  update events set status = 'open', starts_at = now(), activity_at = now() where id = e.id;
+end $$;
+
+-- "Terminar fiesta": corta los disparos aunque queden fotos y abre la votación final.
 create or replace function public.end_shots(p_event_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
+declare
+  e events := assert_host(p_event_id);
 begin
+  if phase(e) not in ('open', 'scheduled') then raise exception 'NOT_ALLOWED'; end if;
   update events set
     status = 'voting',
     voting_ends_at = now() + make_interval(mins => voting_minutes),
     activity_at = now()
-  where id = p_event_id and host_id = auth.uid() and status = 'open';
-  if not found then raise exception 'NOT_ALLOWED'; end if;
+  where id = e.id;
 end $$;
 
 create or replace function public.extend_voting(p_event_id uuid, p_minutes int) returns void
 language plpgsql security definer set search_path = public as $$
+declare
+  e events := assert_host(p_event_id);
 begin
   if p_minutes not between 1 and 1440 then raise exception 'BAD_MINUTES'; end if;
+  if phase(e) <> 'voting' then raise exception 'NOT_ALLOWED'; end if;
   update events set
-    voting_ends_at = greatest(coalesce(voting_ends_at, now()), now()) + make_interval(mins => p_minutes),
+    status = 'voting',
+    voting_ends_at = greatest(voting_deadline(e), now()) + make_interval(mins => p_minutes),
     activity_at = now()
-  where id = p_event_id and host_id = auth.uid() and status = 'voting' and delivered_at is null;
-  if not found then raise exception 'NOT_ALLOWED'; end if;
+  where id = e.id;
 end $$;
 
 create or replace function public.close_album(p_event_id uuid) returns void
 language plpgsql security definer set search_path = public as $$
+declare
+  e events := assert_host(p_event_id);
 begin
   update events set
     status = 'closed',
-    voting_ends_at = least(coalesce(voting_ends_at, now()), now()),
+    voting_ends_at = least(coalesce(voting_deadline(e), now()), now()),
     activity_at = now()
-  where id = p_event_id and host_id = auth.uid();
-  if not found then raise exception 'NOT_ALLOWED'; end if;
+  where id = e.id;
 end $$;
 
--- Lo usa el script de Google Drive, con la sesión de quien organiza.
+-- Edición: el host decide qué queda en el álbum final. Ocultar no borra la foto.
+create or replace function public.set_photo_hidden(p_photo_id uuid, p_hidden boolean) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  p photos;
+  e events;
+begin
+  select * into p from photos where id = p_photo_id and uploaded;
+  if not found then raise exception 'PHOTO_NOT_FOUND'; end if;
+  e := assert_host(p.event_id);
+  if phase(e) <> 'closed' then raise exception 'EVENT_NOT_CLOSED'; end if;
+  if e.delivered_at is not null then raise exception 'ALREADY_DELIVERED'; end if;
+
+  update photos set hidden = p_hidden where id = p.id;
+  if p_hidden and e.cover_photo_id = p.id then
+    update events set cover_photo_id = null where id = e.id;
+  end if;
+end $$;
+
+create or replace function public.set_album_details(p_event_id uuid, p_message text, p_cover_photo_id uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  e events := assert_host(p_event_id);
+begin
+  if e.delivered_at is not null then raise exception 'ALREADY_DELIVERED'; end if;
+  if p_cover_photo_id is not null and not exists (
+    select 1 from photos where id = p_cover_photo_id and event_id = e.id and uploaded and not hidden
+  ) then raise exception 'PHOTO_NOT_FOUND'; end if;
+
+  update events set
+    message = nullif(trim(p_message), ''),
+    cover_photo_id = p_cover_photo_id
+  where id = e.id;
+end $$;
+
+-- Lo usa el script de Google Drive, con la sesión del host.
 create or replace function public.host_export(p_event_id uuid) returns json
 language plpgsql stable security definer set search_path = public as $$
 declare
-  e events;
+  e events := assert_host(p_event_id);
 begin
-  select * into e from events where id = p_event_id and host_id = auth.uid();
-  if not found then raise exception 'NOT_ALLOWED'; end if;
   if phase(e) <> 'closed' then raise exception 'EVENT_NOT_CLOSED'; end if;
 
   return json_build_object(
     'event', json_build_object(
       'id', e.id, 'name', e.name, 'code', e.code, 'created_at', e.created_at,
+      'message', e.message,
+      'cover_path', (select storage_path from photos where id = e.cover_photo_id and not hidden),
       'drive_folder_url', e.drive_folder_url
     ),
     'guests', (
@@ -421,7 +631,7 @@ begin
           (select coalesce(json_agg(gw.email), '[]'::json)
              from wants w join guests gw on gw.id = w.guest_id where w.photo_id = p.id) as wanted_by
         from photos p join guests g on g.id = p.guest_id
-        where p.event_id = e.id and p.uploaded
+        where p.event_id = e.id and p.uploaded and not p.hidden
       ) t
     )
   );
@@ -429,30 +639,36 @@ end $$;
 
 create or replace function public.mark_delivered(p_event_id uuid, p_url text) returns void
 language plpgsql security definer set search_path = public as $$
+declare
+  e events := assert_host(p_event_id);
 begin
-  update events set drive_folder_url = p_url, delivered_at = now(), activity_at = now()
-  where id = p_event_id and host_id = auth.uid();
-  if not found then raise exception 'NOT_ALLOWED'; end if;
+  if phase(e) <> 'closed' then raise exception 'EVENT_NOT_CLOSED'; end if;
+  update events set drive_folder_url = p_url, delivered_at = now(), activity_at = now() where id = e.id;
 end $$;
 
--- Solo usuarios con sesión (los invitados entran con sesión anónima) pueden llamar funciones.
+-- Sin sesión solo se puede ver la invitación; todo lo demás requiere mail verificado.
 revoke execute on all functions in schema public from public, anon;
 grant  execute on all functions in schema public to authenticated, service_role;
+grant  execute on function public.event_preview(text) to anon;
 
 -- ---------------------------------------------------------------------
--- Storage: bucket de fotos (solo JPG, máx 8 MB, sin borrar ni reemplazar)
+-- Storage: bucket PRIVADO de fotos (solo JPG, máx 8 MB, sin borrar ni reemplazar)
 -- ---------------------------------------------------------------------
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('photos', 'photos', true, 8388608, array['image/jpeg'])
+values ('photos', 'photos', false, 8388608, array['image/jpeg'])
 on conflict (id) do update set
-  public = true,
+  public = false,
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "mementos_upload_reserved" on storage.objects;
 create policy "mementos_upload_reserved" on storage.objects for insert to authenticated
   with check (bucket_id = 'photos' and public.can_upload(name));
+
+drop policy if exists "mementos_view_allowed" on storage.objects;
+create policy "mementos_view_allowed" on storage.objects for select to authenticated
+  using (bucket_id = 'photos' and public.can_view_object(name));
 
 -- ---------------------------------------------------------------------
 -- Realtime: cada cambio del evento avisa a todos los teléfonos

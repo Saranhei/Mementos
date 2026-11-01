@@ -5,7 +5,9 @@ import { api, friendlyError } from './api.js'
 const REFRESH_DEBOUNCE_MS = 700
 const FALLBACK_POLL_MS = 20000
 
-// Carga el evento + álbum y los mantiene al día en tiempo real.
+// Después del cierre, los invitados no ven fotos hasta que el host entrega el álbum.
+export const isAlbumLocked = (event, phase = event.phase) => !event.is_host && phase === 'closed' && !event.delivered_at
+
 export const useEventRoom = (code) => {
   const [event, setEvent] = useState(null)
   const [photos, setPhotos] = useState([])
@@ -13,27 +15,25 @@ export const useEventRoom = (code) => {
   const [error, setError] = useState('')
   const timer = useRef(null)
 
-  const loadEvent = useCallback(async () => {
-    const data = await api.getEvent(code)
-    setEvent(data)
-    return data
-  }, [code])
-
-  const loadAlbum = useCallback(async (eventId) => {
-    const rows = await api.album(eventId)
-    setPhotos(rows || [])
-  }, [])
-
   const refresh = useCallback(async () => {
     try {
-      const data = await loadEvent()
-      if (data.guest) await loadAlbum(data.id)
+      const data = await api.getEvent(code)
+      setEvent(data)
+      if (!data.guest) {
+        setPhotos([])
+      } else if (isAlbumLocked(data)) {
+        setPhotos([])
+      } else {
+        setPhotos(await api.album(data.id))
+      }
+      setError('')
       setStatus('ready')
     } catch (err) {
+      if (/ALBUM_LOCKED/.test(err?.message)) setPhotos([])
       setError(friendlyError(err))
       setStatus((current) => (current === 'ready' ? 'ready' : 'error'))
     }
-  }, [loadEvent, loadAlbum])
+  }, [code])
 
   const scheduleRefresh = useCallback(() => {
     clearTimeout(timer.current)
@@ -65,7 +65,6 @@ export const useEventRoom = (code) => {
     }
   }, [eventId, isMember, scheduleRefresh])
 
-  // Para votos y "quiero esta": se ve el cambio al instante y se confirma con el servidor.
   const patchPhoto = useCallback((photoId, changes) => {
     setPhotos((current) => current.map((photo) => (photo.id === photoId ? { ...photo, ...changes } : photo)))
   }, [])

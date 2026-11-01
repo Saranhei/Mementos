@@ -1,21 +1,38 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { api, friendlyError } from '../lib/api.js'
-import { driveScriptUrl } from '../lib/supabase.js'
 import { eventLink, formatRemaining } from '../lib/time.js'
 
-const ShareCard = ({ code }) => {
-  const link = eventLink(code)
+const useQr = (link) => {
   const [qr, setQr] = useState('')
-  const [copied, setCopied] = useState(false)
-
   useEffect(() => {
-    QRCode.toDataURL(link, { margin: 1, width: 480, color: { dark: '#14110f', light: '#f4ece1' } }).then(setQr)
+    QRCode.toDataURL(link, { margin: 1, width: 720, errorCorrectionLevel: 'M', color: { dark: '#1d1a16', light: '#ffffff' } }).then(setQr)
   }, [link])
+  return qr
+}
+
+// Tarjeta para imprimir y dejar en las mesas: el QR es fijo y se activa con "Comenzar".
+const PrintCard = ({ event, qr }) => (
+  <div className="print-card" aria-hidden="true">
+    <p className="print-eyebrow">Mementos · un rollo para todos</p>
+    <h1>{event.name}</h1>
+    <img src={qr} alt="" />
+    <p className="print-code">{event.code}</p>
+    <p className="print-steps">
+      Escaneá · ingresá con tu mail · poné tu nombre · disparar.<br />
+      Cada foto se saca una sola vez. El álbum te llega por mail.
+    </p>
+  </div>
+)
+
+const ShareCard = ({ event }) => {
+  const link = eventLink(event.code)
+  const qr = useQr(link)
+  const [copied, setCopied] = useState(false)
 
   const share = async () => {
     if (navigator.share) {
-      await navigator.share({ title: 'Mementos', text: `Sumate al rollo de fotos (código ${code})`, url: link }).catch(() => {})
+      await navigator.share({ title: event.name, text: `Sumate al rollo de fotos de ${event.name}`, url: link }).catch(() => {})
       return
     }
     await navigator.clipboard.writeText(link)
@@ -25,10 +42,38 @@ const ShareCard = ({ code }) => {
 
   return (
     <section className="card stack share">
-      <p className="eyebrow">Invitar</p>
-      {qr && <img className="qr" src={qr} alt={`QR para entrar al evento ${code}`} />}
-      <p className="share-code mono">{code}</p>
-      <button className="btn primary" onClick={share}>{copied ? 'Link copiado' : 'Compartir link'}</button>
+      <p className="card-title">Invitación</p>
+      {qr && <img className="qr" src={qr} alt={`QR para entrar a ${event.name}`} />}
+      <p className="share-code mono">{event.code}</p>
+      <div className="row two">
+        <button className="btn ghost" onClick={() => window.print()} disabled={!qr}>Imprimir QR</button>
+        <button className="btn ghost" onClick={share}>{copied ? 'Copiado' : 'Compartir link'}</button>
+      </div>
+      {qr && <PrintCard event={event} qr={qr} />}
+    </section>
+  )
+}
+
+const GuestList = ({ eventId, refreshKey }) => {
+  const [guests, setGuests] = useState([])
+  useEffect(() => {
+    api.hostGuests(eventId).then(setGuests).catch(() => {})
+  }, [eventId, refreshKey])
+  if (!guests.length) return null
+  return (
+    <section className="card stack">
+      <p className="card-title">Invitados · {guests.length}</p>
+      <ul className="guest-list">
+        {guests.map((guest) => (
+          <li key={guest.email}>
+            <div>
+              <p className="hand">{guest.name}</p>
+              <p className="muted tiny">{guest.email}</p>
+            </div>
+            <span className="mono small">{guest.photos} 📷</span>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }
@@ -36,7 +81,6 @@ const ShareCard = ({ code }) => {
 export const HostPanel = ({ event, phase, now, onChange }) => {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const [driveResult, setDriveResult] = useState(null)
 
   const run = async (label, action, confirmText) => {
     if (confirmText && !window.confirm(confirmText)) return
@@ -52,85 +96,58 @@ export const HostPanel = ({ event, phase, now, onChange }) => {
     }
   }
 
-  const sendToDrive = () =>
-    run('drive', async () => {
-      const result = await api.sendToDrive(event.id)
-      setDriveResult(result)
-    })
-
-  const folderUrl = driveResult?.folderUrl || event.drive_folder_url
-
   return (
     <div className="stack">
       <section className="stats">
-        <div><span className="stat-num mono">{event.shots_used}/{event.total_shots}</span><span className="muted">disparos</span></div>
-        <div><span className="stat-num mono">{event.guests_count}</span><span className="muted">invitados</span></div>
+        <div><span className="stat-num mono">{event.shots_used}/{event.total_shots}</span><span className="muted small">disparos</span></div>
+        <div><span className="stat-num mono">{event.guests_count}/{event.max_guests}</span><span className="muted small">invitados</span></div>
       </section>
 
+      {phase === 'scheduled' && (
+        <section className="card stack control">
+          <p className="card-title">En espera</p>
+          <p className="muted small">Los invitados ya pueden escanear y anotarse. La cámara se activa para todos cuando toques Comenzar.</p>
+          <button className="btn primary big" disabled={Boolean(busy)} onClick={() => run('start', () => api.startNow(event.id), '¿Comenzar la fiesta? Desde ahora todos pueden disparar.')}>
+            {busy === 'start' ? 'Activando…' : 'Comenzar'}
+          </button>
+        </section>
+      )}
+
       {phase === 'open' && (
-        <>
-          <ShareCard code={event.code} />
-          <section className="card stack">
-            <p className="eyebrow">Terminar la fiesta</p>
-            <p className="muted">
-              Corta los disparos aunque queden fotos y abre la votación final de {event.voting_minutes} min.
-            </p>
-            <button
-              className="btn ghost"
-              disabled={Boolean(busy)}
-              onClick={() => run('end', () => api.endShots(event.id), '¿Cortar los disparos y abrir la votación final?')}
-            >
-              {busy === 'end' ? 'Cerrando…' : 'Terminar fotos'}
-            </button>
-          </section>
-        </>
+        <section className="card stack control">
+          <p className="card-title">Fiesta en vivo</p>
+          <p className="muted small">
+            {event.ends_at ? `Termina sola en ${formatRemaining(event.ends_at, now)}. ` : ''}
+            Al terminar se cortan los disparos y arranca la votación final ({event.voting_minutes} min).
+          </p>
+          <button className="btn danger big" disabled={Boolean(busy)} onClick={() => run('end', () => api.endParty(event.id), '¿Terminar la fiesta? Nadie va a poder sacar más fotos.')}>
+            {busy === 'end' ? 'Terminando…' : 'Terminar fiesta'}
+          </button>
+        </section>
       )}
 
       {phase === 'voting' && (
-        <section className="card stack">
-          <p className="eyebrow">Votación final</p>
+        <section className="card stack control">
+          <p className="card-title">Votación final</p>
           <p className="display">{formatRemaining(event.voting_ends_at, now)}</p>
           <div className="row two">
-            <button className="btn ghost" disabled={Boolean(busy)} onClick={() => run('extend', () => api.extendVoting(event.id, 15))}>
-              +15 min
-            </button>
-            <button
-              className="btn ghost danger"
-              disabled={Boolean(busy)}
-              onClick={() => run('close', () => api.closeAlbum(event.id), '¿Cerrar el álbum ya? Nadie podrá votar más.')}
-            >
-              Cerrar ya
+            <button className="btn ghost" disabled={Boolean(busy)} onClick={() => run('extend', () => api.extendVoting(event.id, 15))}>+15 min</button>
+            <button className="btn danger" disabled={Boolean(busy)} onClick={() => run('close', () => api.closeAlbum(event.id), '¿Cerrar el álbum ya? Nadie podrá votar más.')}>
+              Cerrar álbum
             </button>
           </div>
         </section>
       )}
 
-      {phase === 'closed' && (
+      {phase === 'closed' && !event.delivered_at && (
         <section className="card stack">
-          <p className="eyebrow">Entrega</p>
-          {folderUrl ? (
-            <>
-              <p>
-                Álbum en Drive listo{driveResult ? ` · ${driveResult.emailsSent} mails enviados` : ''}.
-              </p>
-              <a className="btn primary" href={folderUrl} target="_blank" rel="noreferrer">Abrir carpeta</a>
-            </>
-          ) : driveScriptUrl ? (
-            <>
-              <p className="muted">
-                Arma la carpeta en tu Drive, comparte el link con todos y le manda a cada invitado por mail sus “quiero
-                esta” y las más votadas.
-              </p>
-              <button className="btn primary" disabled={Boolean(busy)} onClick={sendToDrive}>
-                {busy === 'drive' ? 'Armando el álbum… (puede tardar)' : 'Enviar álbum por Drive'}
-              </button>
-            </>
-          ) : (
-            <p className="muted">Falta configurar el script de Google Drive (paso 4 del README).</p>
-          )}
+          <p className="card-title">Revelado</p>
+          <p className="muted small">El álbum está cerrado y los invitados no ven las fotos hasta que lo envíes desde Edición.</p>
         </section>
       )}
 
+      {phase !== 'closed' && <ShareCard event={event} />}
+      <GuestList eventId={event.id} refreshKey={`${event.guests_count}-${event.shots_used}`} />
       {error && <p className="error">{error}</p>}
     </div>
   )

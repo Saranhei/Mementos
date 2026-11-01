@@ -24,6 +24,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Probar reglas de la base
+        run: npm run test:db
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/

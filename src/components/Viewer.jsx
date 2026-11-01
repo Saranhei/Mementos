@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { api } from '../lib/api.js'
 import { ChevronIcon, CloseIcon, DownIcon, HeartIcon, UpIcon } from './Icons.jsx'
 
 const SWIPE_PX = 50
@@ -55,7 +54,7 @@ export const Viewer = ({ photos, index, onIndex, onClose, actions }) => {
             <ChevronIcon dir="left" />
           </button>
         )}
-        <img key={photo.id} src={api.photoUrl(photo.storage_path)} alt={`Foto ${photo.shot_number} de ${photo.author}`} />
+        <img key={photo.id} src={photo.url} alt={`Foto ${photo.shot_number} de ${photo.author}`} />
         {hasNext && (
           <button className="viewer-nav next" onClick={() => onIndex(index + 1)} aria-label="Siguiente">
             <ChevronIcon />

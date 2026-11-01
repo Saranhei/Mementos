@@ -1,13 +1,14 @@
 /**
  * Mementos — entrega del álbum por Google Drive + mail.
  *
- * Corre en TU cuenta de Google (script.google.com). Cuando cerrás el álbum y
- * tocás "Enviar álbum por Drive" en la app:
+ * Corre en TU cuenta de Google (script.google.com). Cuando terminás la edición
+ * y tocás "Enviar álbum por mail" en la app:
  *   1. Crea una carpeta "Mementos · <evento> · <fecha>" en tu Drive con todas las fotos.
  *   2. Crea adentro "★ Las más votadas" con el top ordenado.
  *   3. Deja la carpeta visible para cualquiera con el link.
- *   4. Le manda a cada invitado un mail con el link + adjuntas sus "quiero esta"
- *      y las 3 más votadas.
+ *   4. Le manda a cada invitado un mail con tu mensaje, la portada, el link y
+ *      adjuntas sus "quiero esta" y las 3 más votadas.
+ *   Las fotos que ocultaste en la edición no salen en ningún lado.
  *
  * Propiedades del script (Configuración del proyecto → Propiedades del script):
  *   SUPABASE_URL       → https://xxxx.supabase.co
@@ -49,7 +50,7 @@ function deliver_(eventId, token) {
   const folder = DriveApp.createFolder('Mementos · ' + event.name + ' · ' + date)
   folder.setDescription(photos.length + ' fotos sacadas entre todos en ' + event.name + '. Hecho con Mementos.')
 
-  const blobs = fetchBlobs_(photos)
+  const blobs = fetchBlobs_(photos, token)
   const files = {}
   photos.forEach(function (photo) {
     const blob = blobs[photo.id]
@@ -75,6 +76,8 @@ function deliver_(eventId, token) {
   rpc_('mark_delivered', { p_event_id: eventId, p_url: folderUrl }, token)
 
   const topForEmail = ranked.slice(0, TOP_IN_EMAIL)
+  const coverPhoto = photos.filter(function (photo) { return photo.storage_path === event.cover_path })[0] || ranked[0]
+  const cover = coverPhoto && blobs[coverPhoto.id] ? blobs[coverPhoto.id].copyBlob().setName('portada.jpg') : null
   const failed = []
   let emailsSent = 0
 
@@ -87,13 +90,15 @@ function deliver_(eventId, token) {
       const wanted = photos.filter(function (photo) { return photo.wanted_by.indexOf(guest.email) >= 0 })
       const picks = uniqueById_(wanted.concat(topForEmail))
       const attachments = attachmentsFor_(picks, blobs)
-      MailApp.sendEmail({
+      const mail = {
         to: guest.email,
         name: 'Mementos',
         subject: 'Tus fotos de ' + event.name,
-        htmlBody: emailHtml_(guest, event, folderUrl, photos.length, wanted.length, attachments.length, picks.length),
+        htmlBody: emailHtml_(guest, event, folderUrl, photos.length, wanted.length, attachments.length, picks.length, Boolean(cover)),
         attachments: attachments,
-      })
+      }
+      if (cover) mail.inlineImages = { cover: cover }
+      MailApp.sendEmail(mail)
       emailsSent++
     } catch (err) {
       failed.push(guest.email)
@@ -131,13 +136,16 @@ function rpc_(name, args, token) {
   return text ? JSON.parse(text) : null
 }
 
-function fetchBlobs_(photos) {
-  const base = config_().url + '/storage/v1/object/public/photos/'
+// Las fotos son privadas: se bajan con la sesión del host.
+function fetchBlobs_(photos, token) {
+  const cfg = config_()
+  const base = cfg.url + '/storage/v1/object/authenticated/photos/'
+  const headers = { apikey: cfg.key, Authorization: 'Bearer ' + token }
   const blobs = {}
   for (let start = 0; start < photos.length; start += FETCH_BATCH) {
     const batch = photos.slice(start, start + FETCH_BATCH)
     const responses = UrlFetchApp.fetchAll(batch.map(function (photo) {
-      return { url: base + photo.storage_path, muteHttpExceptions: true }
+      return { url: base + photo.storage_path, headers: headers, muteHttpExceptions: true }
     }))
     responses.forEach(function (response, index) {
       if (response.getResponseCode() === 200) {
@@ -162,22 +170,31 @@ function attachmentsFor_(photos, blobs) {
   return attachments
 }
 
-function emailHtml_(guest, event, folderUrl, totalPhotos, wantedCount, attachedCount, pickedCount) {
+function emailHtml_(guest, event, folderUrl, totalPhotos, wantedCount, attachedCount, pickedCount, hasCover) {
   const missing = pickedCount - attachedCount
+  const sans = 'font-family:Arial,Helvetica,sans-serif;line-height:1.5;color:#3b352e'
   return (
-    '<div style="font-family:Georgia,serif;background:#14110f;color:#f4ece1;padding:32px;border-radius:16px;max-width:520px">' +
-    '<p style="font-family:monospace;font-size:12px;letter-spacing:2px;color:#a8998a;margin:0">MEMENTOS</p>' +
-    '<h1 style="font-weight:400;font-size:32px;margin:8px 0 16px">' + escape_(event.name) + '</h1>' +
-    '<p style="font-family:Arial,sans-serif;line-height:1.5">Hola ' + escape_(guest.name) + ', el rollo se reveló: ' +
-    totalPhotos + ' fotos sacadas entre todos.</p>' +
-    '<p style="font-family:Arial,sans-serif;line-height:1.5">' +
+    '<div style="background:#f4efe6;padding:28px 16px">' +
+    '<div style="max-width:520px;margin:0 auto;background:#fffdf8;border:1px solid #e3dccf;border-radius:14px;padding:28px">' +
+    '<p style="font-family:monospace;font-size:11px;letter-spacing:3px;color:#7a7064;margin:0">MEMENTOS · ROLLO REVELADO</p>' +
+    '<h1 style="font-family:Georgia,serif;font-weight:400;font-size:32px;margin:8px 0 18px;color:#1d1a16">' + escape_(event.name) + '</h1>' +
+    (hasCover
+      ? '<div style="background:#fff;padding:10px 10px 34px;box-shadow:0 6px 18px rgba(0,0,0,.18);transform:rotate(-2deg);margin:0 0 22px">' +
+        '<img src="cid:cover" alt="Portada" style="display:block;width:100%;height:auto"></div>'
+      : '') +
+    '<p style="' + sans + '">Hola ' + escape_(guest.name) + ', ' + totalPhotos + ' fotos sacadas entre todos.</p>' +
+    (event.message
+      ? '<p style="font-family:Georgia,serif;font-style:italic;font-size:18px;color:#1d1a16;border-left:3px solid #c8381f;padding-left:12px">' +
+        escape_(event.message).replace(/\n/g, '<br>') + '</p>'
+      : '') +
+    '<p style="' + sans + '">' +
     (attachedCount
       ? 'Te adjuntamos ' + (wantedCount ? 'las que marcaste como “quiero esta” y ' : '') + 'las más votadas.'
       : 'Todas las fotos están en el álbum.') +
     (missing > 0 ? ' Algunas no entraron en el mail; están en la carpeta.' : '') +
     '</p>' +
-    '<p style="margin:24px 0"><a href="' + folderUrl + '" style="background:#ff5a36;color:#1a0d08;padding:14px 22px;border-radius:999px;text-decoration:none;font-family:Arial,sans-serif;font-weight:bold">Ver el álbum completo</a></p>' +
-    '</div>'
+    '<p style="margin:26px 0 6px"><a href="' + folderUrl + '" style="background:#1d1a16;color:#f4efe6;padding:14px 22px;border-radius:999px;text-decoration:none;font-family:Arial,sans-serif;font-weight:bold">Ver el álbum completo</a></p>' +
+    '</div></div>'
   )
 }
 

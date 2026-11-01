@@ -30,3 +30,12 @@ export const CloseIcon = () => (
 export const ChevronIcon = ({ dir = 'right' }) => (
   <svg {...base} style={{ transform: dir === 'left' ? 'scaleX(-1)' : undefined }}><path d="M9 5l7 7-7 7" /></svg>
 )
+export const PencilIcon = () => (
+  <svg {...base}><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="M14 6l4 4" /></svg>
+)
+export const EyeOffIcon = () => (
+  <svg {...base}><path d="M3 12s3.5-6 9-6c1.6 0 3 .5 4.2 1.2M21 12s-3.5 6-9 6c-1.6 0-3-.5-4.2-1.2" /><path d="M4 4l16 16" /></svg>
+)
+export const StarIcon = ({ filled }) => (
+  <svg {...base} fill={filled ? 'currentColor' : 'none'}><path d="M12 4l2.4 5 5.4.6-4 3.7 1.1 5.4L12 16l-4.9 2.7 1.1-5.4-4-3.7 5.4-.6z" /></svg>
+)

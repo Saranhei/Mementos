@@ -1,4 +1,3 @@
-import { api } from '../lib/api.js'
 
 const score = (photo) => photo.ups - photo.downs
 
@@ -9,7 +8,7 @@ const RankList = ({ title, photos, tone }) => (
       {photos.map((photo, position) => (
         <li key={photo.id} className={`rank-item ${tone}`}>
           <span className="rank-pos display">{position + 1}</span>
-          <img src={api.photoUrl(photo.storage_path)} alt={`Foto ${photo.shot_number}`} loading="lazy" />
+          <img src={photo.url} alt={`Foto ${photo.shot_number}`} loading="lazy" />
           <div className="rank-meta">
             <span>#{photo.shot_number} · {photo.is_mine ? 'vos' : photo.author}</span>
             <span className="mono muted">{photo.ups} mejor · {photo.downs} peor</span>

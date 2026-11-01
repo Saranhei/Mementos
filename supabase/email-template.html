@@ -1,0 +1,17 @@
+<!--
+  Plantilla de mail de ingreso. Pegala en Supabase → Authentication → Emails (Templates)
+  en "Magic Link" y también en "Confirm signup".
+  Asunto sugerido: Tu código para Mementos: {{ .Token }}
+-->
+<div style="background:#f4efe6;padding:28px 16px">
+  <div style="max-width:440px;margin:0 auto;background:#fffdf8;border:1px solid #e3dccf;border-radius:14px;padding:28px;text-align:center">
+    <p style="font-family:monospace;font-size:11px;letter-spacing:3px;color:#7a7064;margin:0">MEMENTOS</p>
+    <h1 style="font-family:Georgia,serif;font-weight:400;font-size:28px;color:#1d1a16;margin:10px 0 18px">Tu código para entrar</h1>
+    <p style="font-family:monospace;font-size:34px;letter-spacing:8px;color:#1d1a16;background:#f4efe6;border-radius:10px;padding:14px 0;margin:0 0 18px">{{ .Token }}</p>
+    <p style="font-family:Arial,Helvetica,sans-serif;color:#3b352e;line-height:1.5;margin:0 0 22px">
+      Escribilo en la app. Si abriste Mementos en este mismo navegador, también podés tocar el botón.
+    </p>
+    <a href="{{ .ConfirmationURL }}" style="display:inline-block;background:#1d1a16;color:#f4efe6;padding:13px 22px;border-radius:999px;text-decoration:none;font-family:Arial,sans-serif;font-weight:bold">Entrar a Mementos</a>
+    <p style="font-family:Arial,Helvetica,sans-serif;color:#7a7064;font-size:12px;margin:22px 0 0">Si no lo pediste, ignorá este mail.</p>
+  </div>
+</div>

@@ -6,8 +6,8 @@ const scoreOf = (photo) => photo.ups - photo.downs
 
 export const usePhotoActions = ({ phase, event, patchPhoto }) => {
   const [message, setMessage] = useState('')
-  const canVote = phase !== 'closed'
-  const canWant = !event.delivered_at
+  const canVote = phase === 'open' || phase === 'voting'
+  const canWant = canVote
 
   const vote = async (photo, value) => {
     if (!canVote || photo.is_mine) return
@@ -52,7 +52,7 @@ export const Album = ({ photos, phase, event, patchPhoto }) => {
   if (photos.length === 0) {
     return (
       <div className="empty">
-        <p className="display">Rollo virgen.</p>
+        <p className="display">Rollo virgen</p>
         <p className="muted">Las fotos aparecen acá apenas alguien dispara.</p>
       </div>
     )
@@ -76,17 +76,27 @@ export const Album = ({ photos, phase, event, patchPhoto }) => {
 
       {visible.length === 0 && <p className="muted center-text">Nada por acá todavía.</p>}
 
-      <div className="grid">
-        {visible.map((photo) => (
-          <button key={photo.id} className="thumb" onClick={() => setOpenId(photo.id)}>
-            <img src={api.photoUrl(photo.storage_path)} alt={`Foto ${photo.shot_number} de ${photo.author}`} loading="lazy" />
-            <span className="thumb-num mono">#{photo.shot_number}</span>
-            {scoreOf(photo) !== 0 && (
-              <span className={`thumb-score mono ${scoreOf(photo) > 0 ? 'pos' : 'neg'}`}>
-                {scoreOf(photo) > 0 ? `+${scoreOf(photo)}` : scoreOf(photo)}
+      <div className="polaroids">
+        {visible.map((photo, index) => (
+          <button
+            key={photo.id}
+            className="polaroid"
+            style={{ '--tilt': `${((photo.shot_number * 37) % 7) - 3}deg`, animationDelay: `${Math.min(index, 12) * 30}ms` }}
+            onClick={() => setOpenId(photo.id)}
+          >
+            <span className="polaroid-photo">
+              <img src={photo.url} alt={`Foto ${photo.shot_number} de ${photo.author}`} loading="lazy" />
+              {photo.wanted && <span className="polaroid-want" aria-label="La querés">♥</span>}
+            </span>
+            <span className="polaroid-caption">
+              <span className="hand">{photo.is_mine ? 'vos' : photo.author}</span>
+              <span className="mono tiny">
+                #{photo.shot_number}
+                {scoreOf(photo) !== 0 && (
+                  <b className={scoreOf(photo) > 0 ? 'pos' : 'neg'}> {scoreOf(photo) > 0 ? `+${scoreOf(photo)}` : scoreOf(photo)}</b>
+                )}
               </span>
-            )}
-            {photo.wanted && <span className="thumb-want" aria-label="La querés">♥</span>}
+            </span>
           </button>
         ))}
       </div>
