@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { api, friendlyError } from '../lib/api.js'
 import { driveScriptUrl } from '../lib/supabase.js'
 import { EyeOffIcon, StarIcon } from './Icons.jsx'
+import { DevelopingImage } from './DevelopingImage.jsx'
 
 // Edición del host entre el cierre y el envío: qué fotos van, portada y mensaje.
 // Ocultar no borra: la foto queda guardada, solo no sale en el álbum final.
@@ -56,7 +57,7 @@ export const AlbumEditor = ({ event, photos, patchPhoto, onChange }) => {
   return (
     <div className="stack">
       <section className="card stack">
-        <p className="card-title">Mensaje para los invitados</p>
+        <p className="card-title">Nota para los invitados</p>
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
@@ -64,7 +65,7 @@ export const AlbumEditor = ({ event, photos, patchPhoto, onChange }) => {
           rows={3}
           placeholder="¡Gracias por venir! Acá están los recuerdos de la noche."
         />
-        <p className="muted tiny">Va en el mail junto a la portada. Tocá ★ en una foto para elegirla de portada.</p>
+        <p className="muted tiny">Es la nota que ven mientras se revela el álbum y va en el mail con la portada. Si la dejás vacía, elegimos una. Tocá ★ en una foto para la portada.</p>
       </section>
 
       <p className="muted small">
@@ -75,7 +76,7 @@ export const AlbumEditor = ({ event, photos, patchPhoto, onChange }) => {
         {photos.map((photo) => (
           <div key={photo.id} className={`polaroid static ${photo.hidden ? 'is-hidden' : ''} ${cover === photo.id ? 'is-cover' : ''}`}>
             <span className="polaroid-photo">
-              <img src={photo.url} alt={`Foto ${photo.shot_number} de ${photo.author}`} loading="lazy" />
+              <DevelopingImage src={photo.url} alt={`Foto ${photo.shot_number} de ${photo.author}`} />
               {photo.hidden && <span className="hidden-label mono">Oculta</span>}
             </span>
             <span className="polaroid-caption">

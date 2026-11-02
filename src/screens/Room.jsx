@@ -9,33 +9,39 @@ import { Ranking } from '../components/Ranking.jsx'
 import { HostPanel } from '../components/HostPanel.jsx'
 import { AlbumEditor } from '../components/AlbumEditor.jsx'
 import { Darkroom } from '../components/Darkroom.jsx'
+import { PostIt } from '../components/PostIt.jsx'
 import { CameraIcon, GridIcon, KeyIcon, TrophyIcon, PencilIcon } from '../components/Icons.jsx'
 
+// Avisos de estado como post-its pegados arriba del contenido.
 const Banner = ({ event, phase, now }) => {
   if (phase === 'scheduled') {
     return (
-      <div className="banner scheduled">
+      <PostIt tone="yellow" seed={1} size="sm" className="banner">
         <strong>En espera.</strong> {event.is_host ? 'Tocá Comenzar en el Panel para activar la cámara.' : 'La cámara se activa cuando el anfitrión toque Comenzar.'}
-      </div>
+      </PostIt>
     )
   }
   if (phase === 'voting') {
     return (
-      <div className="banner voting">
+      <PostIt tone="pink" seed={2} size="sm" className="banner">
         <strong>¡Se terminó la fiesta!</strong> Última votación: <span className="mono">{formatRemaining(event.voting_ends_at, now)}</span>
-      </div>
+      </PostIt>
     )
   }
   if (phase === 'closed' && event.delivered_at) {
     return (
-      <div className="banner delivered">
+      <PostIt tone="green" seed={3} size="sm" className="banner">
         <strong>Álbum revelado.</strong>{' '}
         {event.drive_folder_url && <a href={event.drive_folder_url} target="_blank" rel="noreferrer">Abrir en Drive</a>}
-      </div>
+      </PostIt>
     )
   }
   if (phase === 'closed' && event.is_host) {
-    return <div className="banner voting"><strong>Fiesta cerrada.</strong> Editá el álbum y envialo.</div>
+    return (
+      <PostIt tone="blue" seed={4} size="sm" className="banner">
+        <strong>Fiesta cerrada.</strong> Editá el álbum y envialo.
+      </PostIt>
+    )
   }
   return null
 }
@@ -87,7 +93,7 @@ export const Room = ({ room }) => {
           <span className="code-chip mono">{event.code} · {event.guest.name}</span>
         </Link>
         <div className="counter" aria-label={`Quedan ${remaining} disparos`}>
-          <span className="counter-num mono">{String(remaining).padStart(2, '0')}</span>
+          <span key={remaining} className="counter-num mono">{String(remaining).padStart(2, '0')}</span>
         </div>
       </header>
 
@@ -97,13 +103,13 @@ export const Room = ({ room }) => {
         {locked ? (
           <Darkroom event={event} />
         ) : (
-          <>
+          <div key={activeTab} className="tab-panel">
             {activeTab === 'camera' && <Camera event={event} phase={phase} now={now} onShot={scheduleRefresh} />}
             {activeTab === 'album' && <Album photos={photos} phase={phase} event={event} patchPhoto={patchPhoto} />}
             {activeTab === 'ranking' && <Ranking photos={photos} />}
             {activeTab === 'edit' && <AlbumEditor event={event} photos={photos} patchPhoto={patchPhoto} onChange={scheduleRefresh} />}
             {activeTab === 'host' && <HostPanel event={event} phase={phase} now={now} onChange={scheduleRefresh} />}
-          </>
+          </div>
         )}
       </main>
 

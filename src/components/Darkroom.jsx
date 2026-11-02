@@ -1,13 +1,19 @@
-// Lo que ve el invitado entre el cierre y la entrega: el rollo está en el cuarto oscuro.
-export const Darkroom = ({ event }) => (
-  <section className="darkroom">
-    <div className="darkroom-light" aria-hidden="true" />
-    <p className="eyebrow">Cuarto oscuro</p>
-    <h2 className="display">Revelando el rollo…</h2>
-    <p>
-      La fiesta terminó. El anfitrión está editando el álbum de <strong>{event.name}</strong>. Cuando esté listo te llega
-      a <strong>{event.guest.email}</strong> y vas a poder verlo acá.
-    </p>
-    <p className="tiny">Gracias por cada foto 📷</p>
-  </section>
-)
+import { closingNoteFor } from '../lib/notes.js'
+import { PostIt } from './PostIt.jsx'
+
+// Entre el cierre y la entrega: una nota del anfitrión pegada en el álbum (o una de las nuestras).
+export const Darkroom = ({ event }) => {
+  const note = closingNoteFor(event)
+  return (
+    <section className="closing">
+      <p className="eyebrow">El rollo se está revelando</p>
+      <PostIt tone="yellow" seed={event.code.length} size="lg" className="closing-note">
+        <p className="hand closing-text">{note.text}</p>
+        {note.signature && <p className="hand closing-sign">— {note.signature}</p>}
+      </PostIt>
+      <p className="muted small closing-foot">
+        Cuando el álbum esté listo te llega a <strong>{event.guest.email}</strong> y vas a poder verlo acá.
+      </p>
+    </section>
+  )
+}

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { api, friendlyError } from '../lib/api.js'
 import { eventLink, formatRemaining } from '../lib/time.js'
+import { PostIt } from './PostIt.jsx'
 
 const useQr = (link) => {
   const [qr, setQr] = useState('')
@@ -51,6 +52,45 @@ const ShareCard = ({ event }) => {
       </div>
       {qr && <PrintCard event={event} qr={qr} />}
     </section>
+  )
+}
+
+// La nota que ven los invitados mientras se revela el álbum (y que va en el mail).
+const HostNote = ({ event, onChange }) => {
+  const [text, setText] = useState(event.message || '')
+  const [state, setState] = useState('idle')
+  const dirty = text.trim() !== (event.message || '')
+
+  const save = async () => {
+    setState('saving')
+    try {
+      await api.setAlbumDetails(event.id, text, event.cover_photo_id)
+      setState('saved')
+      onChange()
+      setTimeout(() => setState('idle'), 1800)
+    } catch {
+      setState('error')
+    }
+  }
+
+  return (
+    <PostIt tone="pink" seed={7} className="note-editor">
+      <p className="eyebrow">Tu nota para los invitados</p>
+      <textarea
+        className="hand note-input"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        maxLength={1000}
+        rows={4}
+        placeholder="Escribí algo para cuando termine la fiesta… Si la dejás vacía, ponemos una nota sorpresa."
+      />
+      <div className="row-between">
+        <span className="tiny muted">{state === 'saved' ? 'Guardada ✓' : state === 'error' ? 'No se pudo guardar' : 'La ven al cerrar el álbum'}</span>
+        <button className="btn primary small-btn" onClick={save} disabled={!dirty || state === 'saving'}>
+          {state === 'saving' ? 'Guardando…' : 'Guardar'}
+        </button>
+      </div>
+    </PostIt>
   )
 }
 
@@ -146,6 +186,7 @@ export const HostPanel = ({ event, phase, now, onChange }) => {
         </section>
       )}
 
+      {!event.delivered_at && phase !== 'closed' && <HostNote event={event} onChange={onChange} />}
       {phase !== 'closed' && <ShareCard event={event} />}
       <GuestList eventId={event.id} refreshKey={`${event.guests_count}-${event.shots_used}`} />
       {error && <p className="error">{error}</p>}

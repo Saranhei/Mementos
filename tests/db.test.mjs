@@ -74,7 +74,7 @@ check('preview sin sesión responde (aunque no exista)', String(prev).includes('
 const [{ create_event: code }] = await as('host', `select public.create_event('Fiesta', 3, 3, 2, 0, null, 'Mishu')`)
 const host = await ev('host', code)
 check('nace en espera', host.phase === 'scheduled')
-check('host con mail de la sesión', host.is_host && host.guest.email === 'mishu@test.com')
+check('host con mail de la sesión', host.is_host && host.guest.email === 'mishu@test.com' && host.host_name === 'Mishu')
 const preview = (await as(null, `select public.event_preview($1) as p`, [code], 'anon'))[0].p
 check('preview sin datos privados', preview.name === 'Fiesta' && !('id' in preview) && preview.shots_left === 3)
 
@@ -85,6 +85,8 @@ await expectError('cupo de invitados', () => as('avy', `select public.join_event
 await as('kora', `select public.join_event($1, 'Kora R')`, [code])
 check('reingresar cambia el nombre y no ocupa cupo', (await ev('kora', code)).guest.name === 'Kora R')
 
+await as('host', `select public.set_album_details($1, 'Nota previa', null)`, [host.id])
+check('nota del host antes de empezar, visible al invitado', (await ev('kora', code)).message === 'Nota previa')
 await expectError('no se dispara antes de Comenzar', () => as('kora', `select * from public.take_shot($1)`, [host.id]), 'NOT_STARTED')
 await expectError('invitado no puede Comenzar', () => as('kora', `select public.start_now($1)`, [host.id]), 'NOT_ALLOWED')
 await as('host', `select public.start_now($1)`, [host.id])

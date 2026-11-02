@@ -303,6 +303,7 @@ begin
     'phase', phase(e),
     'delivered_at', e.delivered_at,
     'message', case when g.id is not null then e.message end,
+    'host_name', (select name from guests where event_id = e.id and user_id = e.host_id limit 1),
     'cover_photo_id', case when g.id is not null then e.cover_photo_id end,
     'drive_folder_url', case when g.id is not null then e.drive_folder_url end,
     'is_host', e.host_id = auth.uid(),
@@ -568,6 +569,7 @@ begin
 end $$;
 
 -- Edición: el host decide qué queda en el álbum final. Ocultar no borra la foto.
+-- La nota para los invitados (set_album_details) se puede escribir en cualquier momento antes de la entrega.
 create or replace function public.set_photo_hidden(p_photo_id uuid, p_hidden boolean) returns void
 language plpgsql security definer set search_path = public as $$
 declare
