@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { api, friendlyError } from '../lib/api.js'
 import { Viewer } from './Viewer.jsx'
 import { DevelopingImage } from './DevelopingImage.jsx'
-import { PostIt } from './PostIt.jsx'
 
 const scoreOf = (photo) => photo.ups - photo.downs
 
@@ -54,10 +53,8 @@ export const Album = ({ photos, phase, event, patchPhoto }) => {
   if (photos.length === 0) {
     return (
       <div className="empty">
-        <PostIt tone="blue" seed={5} size="lg">
-          <p className="hand big-hand">Rollo virgen.</p>
-          <p className="small">Las fotos aparecen acá apenas alguien dispara.</p>
-        </PostIt>
+        <p className="display">Rollo virgen</p>
+        <p className="muted">Las fotos aparecen acá apenas alguien dispara.</p>
       </div>
     )
   }

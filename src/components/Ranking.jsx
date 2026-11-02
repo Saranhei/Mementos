@@ -1,5 +1,4 @@
 import { DevelopingImage } from './DevelopingImage.jsx'
-import { PostIt } from './PostIt.jsx'
 const score = (photo) => photo.ups - photo.downs
 
 const RankList = ({ title, photos, tone }) => (
@@ -11,7 +10,7 @@ const RankList = ({ title, photos, tone }) => (
           <span className="rank-pos display">{position + 1}</span>
           <DevelopingImage src={photo.url} alt={`Foto ${photo.shot_number}`} />
           <div className="rank-meta">
-            <span className="hand">{photo.is_mine ? 'vos' : photo.author}</span>
+            <span>{photo.is_mine ? 'vos' : photo.author}</span>
             <span className="mono tiny">#{photo.shot_number}</span>
             <span className="mono muted">{photo.ups} mejor · {photo.downs} peor</span>
           </div>
@@ -35,10 +34,8 @@ export const Ranking = ({ photos }) => {
   if (best.length === 0 && worst.length === 0) {
     return (
       <div className="empty">
-        <PostIt tone="pink" seed={6} size="lg">
-          <p className="hand big-hand">Sin votos todavía.</p>
-          <p className="small">Abrí una foto del álbum y votá si es la mejor o la peor.</p>
-        </PostIt>
+        <p className="display">Sin votos todavía</p>
+        <p className="muted">Abrí una foto del álbum y votá si es la mejor o la peor.</p>
       </div>
     )
   }

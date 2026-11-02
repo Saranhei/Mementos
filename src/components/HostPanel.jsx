@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
 import { api, friendlyError } from '../lib/api.js'
 import { eventLink, formatRemaining } from '../lib/time.js'
-import { PostIt } from './PostIt.jsx'
 
 const useQr = (link) => {
   const [qr, setQr] = useState('')
@@ -74,15 +73,15 @@ const HostNote = ({ event, onChange }) => {
   }
 
   return (
-    <PostIt tone="pink" seed={7} className="note-editor">
-      <p className="eyebrow">Tu nota para los invitados</p>
+    <section className="card stack note-editor">
+      <p className="card-title">Tu nota para los invitados</p>
       <textarea
-        className="hand note-input"
+        className="note-input"
         value={text}
         onChange={(e) => setText(e.target.value)}
         maxLength={1000}
         rows={4}
-        placeholder="Escribí algo para cuando termine la fiesta… Si la dejás vacía, ponemos una nota sorpresa."
+        placeholder="Unas palabras para cuando termine la fiesta. Si la dejás vacía, elegimos una por vos."
       />
       <div className="row-between">
         <span className="tiny muted">{state === 'saved' ? 'Guardada ✓' : state === 'error' ? 'No se pudo guardar' : 'La ven al cerrar el álbum'}</span>
@@ -90,7 +89,7 @@ const HostNote = ({ event, onChange }) => {
           {state === 'saving' ? 'Guardando…' : 'Guardar'}
         </button>
       </div>
-    </PostIt>
+    </section>
   )
 }
 
@@ -107,7 +106,7 @@ const GuestList = ({ eventId, refreshKey }) => {
         {guests.map((guest) => (
           <li key={guest.email}>
             <div>
-              <p className="hand">{guest.name}</p>
+              <p>{guest.name}</p>
               <p className="muted tiny">{guest.email}</p>
             </div>
             <span className="mono small">{guest.photos} 📷</span>

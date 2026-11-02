@@ -9,38 +9,37 @@ import { Ranking } from '../components/Ranking.jsx'
 import { HostPanel } from '../components/HostPanel.jsx'
 import { AlbumEditor } from '../components/AlbumEditor.jsx'
 import { Darkroom } from '../components/Darkroom.jsx'
-import { PostIt } from '../components/PostIt.jsx'
 import { CameraIcon, GridIcon, KeyIcon, TrophyIcon, PencilIcon } from '../components/Icons.jsx'
 
-// Avisos de estado como post-its pegados arriba del contenido.
+// Avisos de estado arriba del contenido.
 const Banner = ({ event, phase, now }) => {
   if (phase === 'scheduled') {
     return (
-      <PostIt tone="yellow" seed={1} size="sm" className="banner">
+      <div className="banner scheduled">
         <strong>En espera.</strong> {event.is_host ? 'Tocá Comenzar en el Panel para activar la cámara.' : 'La cámara se activa cuando el anfitrión toque Comenzar.'}
-      </PostIt>
+      </div>
     )
   }
   if (phase === 'voting') {
     return (
-      <PostIt tone="pink" seed={2} size="sm" className="banner">
+      <div className="banner voting">
         <strong>¡Se terminó la fiesta!</strong> Última votación: <span className="mono">{formatRemaining(event.voting_ends_at, now)}</span>
-      </PostIt>
+      </div>
     )
   }
   if (phase === 'closed' && event.delivered_at) {
     return (
-      <PostIt tone="green" seed={3} size="sm" className="banner">
+      <div className="banner delivered">
         <strong>Álbum revelado.</strong>{' '}
         {event.drive_folder_url && <a href={event.drive_folder_url} target="_blank" rel="noreferrer">Abrir en Drive</a>}
-      </PostIt>
+      </div>
     )
   }
   if (phase === 'closed' && event.is_host) {
     return (
-      <PostIt tone="blue" seed={4} size="sm" className="banner">
+      <div className="banner voting">
         <strong>Fiesta cerrada.</strong> Editá el álbum y envialo.
-      </PostIt>
+      </div>
     )
   }
   return null
