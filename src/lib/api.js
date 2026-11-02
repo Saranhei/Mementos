@@ -94,7 +94,7 @@ export const api = {
   toggleWant: (photoId) => rpc('toggle_want', { p_photo_id: photoId }),
 
   // host
-  hostGuests: (eventId) => rpc('host_guests', { p_event_id: eventId }),
+  hostGuests: (eventId) => rpc('host_guest_list', { p_event_id: eventId }),
   removeGuest: (eventId, guestId) => rpc('remove_guest', { p_event_id: eventId, p_guest_id: guestId }),
   rotateJoinSecret: (eventId) => rpc('rotate_join_secret', { p_event_id: eventId }),
   startNow: (eventId) => rpc('start_now', { p_event_id: eventId }),

@@ -135,6 +135,7 @@ drop function if exists public.event_preview(text);
 drop function if exists public.join_event(text, text);
 drop function if exists public.join_event(text, text, text);
 drop function if exists public.host_guests(uuid);
+drop function if exists public.host_guest_list(uuid);
 drop function if exists public.create_event(text, int, int, int, int, timestamptz, timestamptz, text);
 drop function if exists public.create_event(text, int, int, int, text, text);
 
@@ -584,7 +585,7 @@ end $$;
 
 -- ---------- Acciones del anfitrión ----------
 
-create or replace function public.host_guests(p_event_id uuid)
+create or replace function public.host_guest_list(p_event_id uuid)
 returns table (id uuid, name text, email text, photos int, joined_at timestamptz, is_host boolean)
 language plpgsql stable security definer set search_path = '' as $$
 declare
@@ -758,6 +759,23 @@ end $$;
 revoke execute on all functions in schema public from public, anon;
 grant  execute on all functions in schema public to authenticated, service_role;
 grant  execute on function public.event_preview(text, text) to anon;
+
+-- Versiones viejas que hayan quedado de instalaciones anteriores: nadie las puede llamar.
+do $$
+declare
+  f text;
+begin
+  foreach f in array array[
+    'public.get_event(text)', 'public.join_event(text, text)', 'public.event_preview(text)', 'public.host_guests(uuid)',
+    'public.can_see_event(uuid)', 'public.can_view_object(text)', 'public.can_upload(text)', 'public.my_guest_id(uuid)',
+    'public.assert_host(uuid)', 'public.session_email()', 'public.new_event_code()',
+    'public.voting_deadline(public.events)', 'public.phase(public.events)'
+  ] loop
+    if to_regprocedure(f) is not null then
+      execute format('revoke execute on function %s from public, anon, authenticated', f);
+    end if;
+  end loop;
+end $$;
 
 -- ---------------------------------------------------------------------
 -- Storage: bucket PRIVADO de fotos (solo JPG, máx 8 MB, sin borrar ni reemplazar)

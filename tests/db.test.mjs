@@ -133,7 +133,7 @@ const afterHide = await ev('host', code)
 check('nadie lee la clave directo de la tabla', await as('kora', 'select join_secret from event_secrets').then((r) => r.length === 0, () => true))
 check('ni siquiera el host lee la tabla de claves', await as('host', 'select join_secret from event_secrets').then((r) => r.length === 0, () => true))
 check('ocultar la portada la saca', afterHide.cover_photo_id === null && afterHide.message === 'Gracias por venir')
-const guestsList = await as('host', `select * from public.host_guests($1)`, [host.id])
+const guestsList = await as('host', `select * from public.host_guest_list($1)`, [host.id])
 check('host ve invitados con cantidad de fotos', guestsList.length === 3 && guestsList.find((g) => g.name === 'Kora R').photos === 1 && guestsList.filter((g) => g.is_host).length === 1)
 
 const exp = (await as('host', `select public.host_export($1) as x`, [host.id]))[0].x
@@ -155,7 +155,7 @@ await as('kora', `select public.join_event($1, 'Kora', $2)`, [code2, secret2])
 await expectError('no se dispara antes de empezar', () => as('kora', `select * from public.take_shot($1)`, [e2.id]), 'NOT_STARTED')
 // --- quitar invitados y regenerar QR ---
 await as('ori', `select public.join_event($1, 'Ori', $2)`, [code2, secret2])
-const g2 = await as('host', `select * from public.host_guests($1)`, [e2.id])
+const g2 = await as('host', `select * from public.host_guest_list($1)`, [e2.id])
 const oriRow = g2.find((g) => g.name === 'Ori')
 const hostRow = g2.find((g) => g.is_host)
 await expectError('invitado no quita a nadie', () => as('kora', `select public.remove_guest($1, $2)`, [e2.id, oriRow.id]), 'NOT_ALLOWED')
