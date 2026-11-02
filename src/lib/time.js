@@ -45,4 +45,6 @@ export const dateStamp = (date = new Date()) => {
 // <input type="datetime-local"> trabaja en hora local sin zona; lo pasamos a ISO.
 export const localInputToIso = (value) => (value ? new Date(value).toISOString() : null)
 
-export const eventLink = (code) => `${window.location.origin}${window.location.pathname}#/e/${code}`
+// El QR lleva el código + la clave secreta: sin la clave, nadie nuevo puede sumarse.
+export const eventLink = (code, secret) =>
+  `${window.location.origin}${window.location.pathname}#/e/${code}${secret ? `/${secret}` : ''}`

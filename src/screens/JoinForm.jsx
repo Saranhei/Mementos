@@ -11,7 +11,7 @@ const readLastName = () => {
   }
 }
 
-export const JoinForm = ({ event, email, onJoined }) => {
+export const JoinForm = ({ event, email, secret, onJoined }) => {
   const [name, setName] = useState(readLastName)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -21,7 +21,7 @@ export const JoinForm = ({ event, email, onJoined }) => {
     setBusy(true)
     setError('')
     try {
-      await api.joinEvent({ code: event.code, name })
+      await api.joinEvent({ code: event.code, name, secret })
       try {
         localStorage.setItem(LAST_NAME, name)
       } catch {

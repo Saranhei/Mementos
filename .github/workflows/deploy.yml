@@ -26,9 +26,17 @@ jobs:
       - run: npm ci
       - name: Probar reglas de la base
         run: npm run test:db
+      - name: Verificar que estén los secretos
+        run: |
+          if [ -z "${{ secrets.SUPABASE_URL }}" ] || [ -z "${{ secrets.SUPABASE_PUBLISHABLE_KEY }}" ]; then
+            echo "::error::Faltan los secretos SUPABASE_URL y/o SUPABASE_PUBLISHABLE_KEY (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
       - run: npm run build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           VITE_DRIVE_SCRIPT_URL: ${{ vars.VITE_DRIVE_SCRIPT_URL }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

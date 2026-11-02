@@ -12,7 +12,7 @@ export const App = () => {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/nuevo" element={<CreateEvent />} />
-        <Route path="/e/:code" element={<EventPage />} />
+        <Route path="/e/:code/:secret?" element={<EventPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </HashRouter>

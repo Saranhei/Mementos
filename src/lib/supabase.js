@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@supabase/supabase-js'
 
 const url = import.meta.env.VITE_SUPABASE_URL
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Clave publicable (sb_publishable_...). Se rota desde Supabase → Settings → API Keys.
+const anonKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 
 export const isConfigured = Boolean(url && anonKey)
 export const driveScriptUrl = import.meta.env.VITE_DRIVE_SCRIPT_URL || ''
@@ -30,7 +31,7 @@ export const useSession = () => {
 export const sendLoginEmail = (email) =>
   supabase.auth.signInWithOtp({
     email,
-    options: { shouldCreateUser: true, emailRedirectTo: window.location.href.split('?')[0] },
+    options: { shouldCreateUser: true, emailRedirectTo: `${window.location.origin}${window.location.pathname}` },
   })
 
 export const verifyLoginCode = (email, token) => supabase.auth.verifyOtp({ email, token, type: 'email' })

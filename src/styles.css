@@ -496,3 +496,6 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--ink); outli
   .developing, .developing.ready { transition: none; }
   .polaroid, .btn, .vote, .shutter span { transition: none; }
 }
+
+.guest-actions { display: flex; align-items: center; gap: 12px; }
+.danger-link { color: var(--bad); }

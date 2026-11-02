@@ -4,6 +4,7 @@ import { signOut, useSession } from '../lib/supabase.js'
 import { api } from '../lib/api.js'
 import { formatWhen } from '../lib/time.js'
 import { FilmStrip } from '../components/FilmStrip.jsx'
+import { takePendingJoin } from '../lib/pendingJoin.js'
 
 const normalizeCode = (value) => value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)
 
@@ -49,6 +50,12 @@ export const Home = () => {
   const session = useSession()
   const [code, setCode] = useState('')
 
+  useEffect(() => {
+    if (!session) return
+    const pending = takePendingJoin()
+    if (pending) navigate(`/e/${pending.code}/${pending.secret}`, { replace: true })
+  }, [session, navigate])
+
   const enter = (submitEvent) => {
     submitEvent.preventDefault()
     if (code.length === 6) navigate(`/e/${code}`)
@@ -77,7 +84,8 @@ export const Home = () => {
             autoComplete="off"
           />
         </label>
-        <button className="btn primary" disabled={code.length !== 6}>Entrar a la fiesta</button>
+        <button className="btn primary" disabled={code.length !== 6}>Volver a la fiesta</button>
+        <p className="muted tiny">¿Primera vez? Escaneá el QR del evento con la cámara del celu.</p>
       </form>
 
       {session && <MyEvents />}

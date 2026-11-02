@@ -25,10 +25,11 @@ const PrintCard = ({ event, qr }) => (
   </div>
 )
 
-const ShareCard = ({ event }) => {
-  const link = eventLink(event.code)
+const ShareCard = ({ event, onChange }) => {
+  const link = eventLink(event.code, event.join_secret)
   const qr = useQr(link)
   const [copied, setCopied] = useState(false)
+  const [rotating, setRotating] = useState(false)
 
   const share = async () => {
     if (navigator.share) {
@@ -40,15 +41,28 @@ const ShareCard = ({ event }) => {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  // Si el QR se filtró: el viejo deja de servir para sumarse; los que ya están, siguen.
+  const rotate = async () => {
+    if (!window.confirm('¿Generar un QR nuevo? El anterior (y los que imprimiste) dejan de servir para sumarse. Los que ya están adentro siguen.')) return
+    setRotating(true)
+    try {
+      await api.rotateJoinSecret(event.id)
+      onChange()
+    } finally {
+      setRotating(false)
+    }
+  }
+
   return (
     <section className="card stack share">
       <p className="card-title">Invitación</p>
       {qr && <img className="qr" src={qr} alt={`QR para entrar a ${event.name}`} />}
-      <p className="share-code mono">{event.code}</p>
+      <p className="muted tiny">Solo se puede sumar quien tenga este QR o el link. Código para volver a entrar: <span className="mono">{event.code}</span></p>
       <div className="row two">
         <button className="btn ghost" onClick={() => window.print()} disabled={!qr}>Imprimir QR</button>
         <button className="btn ghost" onClick={share}>{copied ? 'Copiado' : 'Compartir link'}</button>
       </div>
+      <button className="link-btn" onClick={rotate} disabled={rotating}>{rotating ? 'Generando…' : '¿Se filtró? Generar un QR nuevo'}</button>
       {qr && <PrintCard event={event} qr={qr} />}
     </section>
   )
@@ -93,23 +107,46 @@ const HostNote = ({ event, onChange }) => {
   )
 }
 
-const GuestList = ({ eventId, refreshKey }) => {
+const GuestList = ({ eventId, refreshKey, onChange }) => {
   const [guests, setGuests] = useState([])
+  const [removing, setRemoving] = useState('')
+  const load = () => api.hostGuests(eventId).then(setGuests).catch(() => {})
   useEffect(() => {
-    api.hostGuests(eventId).then(setGuests).catch(() => {})
+    load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventId, refreshKey])
+
+  // Quitar no borra sus fotos: pierde el acceso y no recibe el álbum.
+  const remove = async (guest) => {
+    if (!window.confirm(`¿Quitar a ${guest.name} (${guest.email})? Pierde el acceso al evento y no recibe el álbum. Sus fotos quedan.`)) return
+    setRemoving(guest.id)
+    try {
+      await api.removeGuest(eventId, guest.id)
+      await load()
+      onChange()
+    } finally {
+      setRemoving('')
+    }
+  }
   if (!guests.length) return null
   return (
     <section className="card stack">
       <p className="card-title">Invitados · {guests.length}</p>
       <ul className="guest-list">
         {guests.map((guest) => (
-          <li key={guest.email}>
+          <li key={guest.id}>
             <div>
-              <p>{guest.name}</p>
+              <p>{guest.name}{guest.is_host ? <span className="muted tiny"> · anfitrión</span> : ''}</p>
               <p className="muted tiny">{guest.email}</p>
             </div>
-            <span className="mono small">{guest.photos} 📷</span>
+            <span className="guest-actions">
+              <span className="mono small">{guest.photos} 📷</span>
+              {!guest.is_host && (
+                <button className="link-btn danger-link" onClick={() => remove(guest)} disabled={removing === guest.id}>
+                  {removing === guest.id ? '…' : 'Quitar'}
+                </button>
+              )}
+            </span>
           </li>
         ))}
       </ul>
@@ -186,8 +223,8 @@ export const HostPanel = ({ event, phase, now, onChange }) => {
       )}
 
       {!event.delivered_at && phase !== 'closed' && <HostNote event={event} onChange={onChange} />}
-      {phase !== 'closed' && <ShareCard event={event} />}
-      <GuestList eventId={event.id} refreshKey={`${event.guests_count}-${event.shots_used}`} />
+      {phase !== 'closed' && <ShareCard event={event} onChange={onChange} />}
+      <GuestList eventId={event.id} refreshKey={`${event.guests_count}-${event.shots_used}`} onChange={onChange} />
       {error && <p className="error">{error}</p>}
     </div>
   )

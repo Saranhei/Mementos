@@ -8,7 +8,7 @@ const FALLBACK_POLL_MS = 20000
 // Después del cierre, los invitados no ven fotos hasta que el host entrega el álbum.
 export const isAlbumLocked = (event, phase = event.phase) => !event.is_host && phase === 'closed' && !event.delivered_at
 
-export const useEventRoom = (code) => {
+export const useEventRoom = (code, secret) => {
   const [event, setEvent] = useState(null)
   const [photos, setPhotos] = useState([])
   const [status, setStatus] = useState('loading')
@@ -17,7 +17,7 @@ export const useEventRoom = (code) => {
 
   const refresh = useCallback(async () => {
     try {
-      const data = await api.getEvent(code)
+      const data = await api.getEvent(code, secret)
       setEvent(data)
       if (!data.guest) {
         setPhotos([])
@@ -33,7 +33,7 @@ export const useEventRoom = (code) => {
       setError(friendlyError(err))
       setStatus((current) => (current === 'ready' ? 'ready' : 'error'))
     }
-  }, [code])
+  }, [code, secret])
 
   const scheduleRefresh = useCallback(() => {
     clearTimeout(timer.current)

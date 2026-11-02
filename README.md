@@ -32,16 +32,16 @@ Todo se configura **desde el navegador**. No hace falta computadora.
    - **Gmail:** con una contraseña de aplicación, unos 500 por día.
 
    Después, en **Rate Limits**, subí el límite de mails por hora. Si no, en una fiesta de 80 personas los códigos se traban.
-7. **Project Settings → API:** copiá la **Project URL** y la **anon / publishable key**.
+7. **Settings → API Keys:** usá una **publishable key** (`sb_publishable_...`). En la pestaña **Legacy API Keys**, desactivá las claves viejas (anon/service_role).
 
-> La anon key es pública por diseño. La seguridad la dan las reglas del SQL. **Nunca** copies la `service_role` key a GitHub ni a la app.
+> La publishable key termina dentro de la app (todo frontend la necesita), pero **no se sube al repo** y se puede rotar cuando quieras desde Supabase. La seguridad la dan las reglas del SQL. **Nunca** uses una `sb_secret_...` ni la `service_role` en la app.
 
 ## Paso 2 · GitHub Pages
 
 1. **Settings → Pages → Source:** elegí **GitHub Actions**.
-2. **Settings → Secrets and variables → Actions → Variables:** cargá dos variables:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
+2. **Settings → Secrets and variables → Actions → Secrets → New repository secret:** cargá dos secretos:
+   - `SUPABASE_URL`
+   - `SUPABASE_PUBLISHABLE_KEY`
 3. **Actions → Publicar en GitHub Pages → Run workflow.**
 
 Cada push a `main` hace tres cosas: prueba las reglas de la base, compila la app y la publica. Si una prueba falla, no se publica.
@@ -59,7 +59,7 @@ Para instalarla como app:
 ## Paso 4 · Entrega por Google Drive
 
 1. Entrá a [script.google.com](https://script.google.com) → **Nuevo proyecto** → pegá [`drive/Code.gs`](drive/Code.gs).
-2. ⚙️ **Configuración del proyecto → Propiedades del script:** agregá `SUPABASE_URL` y `SUPABASE_ANON_KEY`.
+2. ⚙️ **Configuración del proyecto → Propiedades del script:** agregá `SUPABASE_URL` y `SUPABASE_PUBLISHABLE_KEY`.
 3. **Implementar → Nueva implementación → Aplicación web.** Configurala así:
    - Ejecutar como: **Yo**
    - Acceso: **Cualquier usuario**
@@ -79,6 +79,7 @@ Para instalarla como app:
 | Nadie dispara antes de "Comenzar" | `take_shot()` responde `NOT_STARTED` mientras el evento está en espera |
 | Disparos compartidos, sin pasarse del total | `take_shot()` bloquea la fila del evento y cuenta de forma atómica |
 | Cupo de invitados | `join_event()` responde `EVENT_FULL` al llegar al máximo |
+| Solo entra quien tiene el QR | `join_event()` exige la clave secreta del QR (guardada aparte, nadie la lee por la API). El anfitrión puede quitar invitados y generar un QR nuevo |
 | Fotos sin borrar ni reemplazar | Storage solo permite subir al path reservado, una vez. No hay permisos de borrado |
 | Fotos privadas | El bucket es privado y las fotos se ven con links firmados que vencen en 1 hora |
 | Cuarto oscuro tras el cierre | `album()` y Storage niegan las fotos a los invitados hasta la entrega |

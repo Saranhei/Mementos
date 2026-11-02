@@ -12,7 +12,7 @@
  *
  * Propiedades del script (Configuración del proyecto → Propiedades del script):
  *   SUPABASE_URL       → https://xxxx.supabase.co
- *   SUPABASE_ANON_KEY  → la anon/publishable key (la misma que usa la app)
+ *   SUPABASE_PUBLISHABLE_KEY → la publishable key (sb_publishable_..., la misma que usa la app)
  *
  * No necesita la service key: usa la sesión de quien organiza, y Supabase
  * verifica que sea el dueño del evento y que el álbum esté cerrado.
@@ -113,8 +113,8 @@ function deliver_(eventId, token) {
 function config_() {
   const props = PropertiesService.getScriptProperties()
   const url = props.getProperty('SUPABASE_URL')
-  const key = props.getProperty('SUPABASE_ANON_KEY')
-  if (!url || !key) throw new Error('Faltan SUPABASE_URL o SUPABASE_ANON_KEY en las propiedades del script')
+  const key = props.getProperty('SUPABASE_PUBLISHABLE_KEY')
+  if (!url || !key) throw new Error('Faltan SUPABASE_URL o SUPABASE_PUBLISHABLE_KEY en las propiedades del script')
   return { url: url.replace(/\/$/, ''), key: key }
 }
 

@@ -1,7 +1,8 @@
 import { supabase, currentAccessToken, driveScriptUrl } from './supabase.js'
 
 const MESSAGES = {
-  EVENT_NOT_FOUND: 'No encontramos ese evento. Revisá el código.',
+  EVENT_NOT_FOUND: 'No encontramos ese evento. Si es la primera vez que entrás, escaneá el QR o pedile el link al anfitrión.',
+  REMOVED: 'El anfitrión te quitó de este evento.',
   EVENT_CLOSED: 'Este álbum ya está cerrado.',
   EVENT_FULL: 'El evento llegó al máximo de invitados.',
   NOT_STARTED: 'La fiesta todavía no empezó.',
@@ -58,7 +59,7 @@ const withUrls = async (photos) => {
 }
 
 export const api = {
-  eventPreview: (code) => rpc('event_preview', { p_code: code }),
+  eventPreview: (code, secret) => rpc('event_preview', { p_code: code, p_secret: secret || null }),
 
   myEvents: () => rpc('my_events'),
 
@@ -73,9 +74,9 @@ export const api = {
       p_host_name: hostName,
     }),
 
-  getEvent: (code) => rpc('get_event', { p_code: code }),
+  getEvent: (code, secret) => rpc('get_event', { p_code: code, p_secret: secret || null }),
 
-  joinEvent: ({ code, name }) => rpc('join_event', { p_code: code, p_name: name }),
+  joinEvent: ({ code, name, secret }) => rpc('join_event', { p_code: code, p_name: name, p_secret: secret || null }),
 
   reserveShot: async (eventId) => (await rpc('take_shot', { p_event_id: eventId }))[0],
 
@@ -94,6 +95,8 @@ export const api = {
 
   // host
   hostGuests: (eventId) => rpc('host_guests', { p_event_id: eventId }),
+  removeGuest: (eventId, guestId) => rpc('remove_guest', { p_event_id: eventId, p_guest_id: guestId }),
+  rotateJoinSecret: (eventId) => rpc('rotate_join_secret', { p_event_id: eventId }),
   startNow: (eventId) => rpc('start_now', { p_event_id: eventId }),
   endParty: (eventId) => rpc('end_shots', { p_event_id: eventId }),
   extendVoting: (eventId, minutes) => rpc('extend_voting', { p_event_id: eventId, p_minutes: minutes }),
